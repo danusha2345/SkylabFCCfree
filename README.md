@@ -55,7 +55,9 @@ You need both. The helper apps let you sideload FreeFCC onto the RC2.
 | DJI Avata 360 | RC2 | Yes | Not tested | FCC working |
 | Other RC2 aircraft | RC2 | Should work | Unknown | FCC profile is universal |
 
-If you test it on a model not listed here, please [open an issue](https://github.com/doesthings/FreeFCC/issues) and let us know.
+Tested on DJI RC 2 Remote Controller firmware v10.00.0700. Older firmware versions should also work, and future versions will likely continue to work unless DJI patches the DUMPL param write path. The commands use standard DUMPL protocol operations that have been stable across firmware revisions.
+
+If you test it on a model or firmware version not listed here, please [open an issue](https://github.com/doesthings/FreeFCC/issues) and let us know.
 
 ## Install Guide
 
