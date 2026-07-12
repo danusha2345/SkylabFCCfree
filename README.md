@@ -79,6 +79,42 @@ Swipe from the right edge to open ATV Launcher. Open the Files app, find your fo
 
 If the signal graph hasn't changed, power cycle the controller and try again. Make sure the drone is powered on and linked before enabling FCC.
 
+## How Do I Know If It Worked?
+
+Open the DJI Fly app and go to the Transmission tab. Look at the horizontal bar around -90 dBm:
+
+- If it lines up with the 1km mark, your drone is in **CE mode**.
+- If it falls below the 1km mark, your drone is in **FCC mode**.
+
+Check the images below for reference.
+
+### FCC Mode
+
+![FCC](https://raw.githubusercontent.com/doesthings/FreeFCC/main/.github/fcc.webp)
+
+The signal bar extends well past the 1km mark. This means the radio is transmitting at full FCC power.
+
+### CE Mode
+
+![CE](https://raw.githubusercontent.com/doesthings/FreeFCC/main/.github/ce.webp)
+
+The signal bar barely reaches the 1km mark. This is the default CE power limit.
+
+## Compatibility
+
+**Tested and working:**
+
+- DJI Mini 5 Pro (RC2)
+- DJI Neo 1 (RC2)
+- DJI Neo 2 (RC2)
+- DJI Avata 360 (RC2)
+
+**Should work but not yet tested:**
+
+All DJI aircraft that connect to the RC2 controller should work, since the FCC profile is universal. If you test it on a model not listed here, let us know so we can add it.
+
+If the signal graph hasn't changed after applying FCC mode, power cycle the controller and try again. Make sure the drone is powered on and linked before enabling FCC.
+
 ## Support
 
 FreeFCC is free and open source under AGPL-3.0. If it saved you some money or just made your day better, consider buying me a coffee:
