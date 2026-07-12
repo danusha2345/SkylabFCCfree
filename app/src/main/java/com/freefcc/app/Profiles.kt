@@ -37,7 +37,7 @@ object Profiles {
         val frames: List<ByteArray>
     )
 
-    /** Loads a static profile (FCC, CE restore, device info) from a JSON asset. */
+    /** Loads a static profile (FCC, CE restore, LED, device info) from a JSON asset. */
     fun load(context: Context, fileName: String): Profile {
         val json = readAsset(context, "profiles/$fileName")
         val obj = JSONObject(json)
@@ -50,12 +50,13 @@ object Profiles {
         val readWindow = obj.optInt("read_window_ms", 80)
         val needsResponse = obj.optBoolean("needs_response", false)
         val port = obj.optInt("port", 40009)
+        val useWrapper = obj.optBoolean("wrapper", false)
 
         val framesArray = obj.getJSONArray("frames")
         val builder = DumplBuilder()
         val frames = (0 until framesArray.length()).map { i ->
             val f = framesArray.getJSONObject(i)
-            builder.buildFrame(DumplFrame(
+            val inner = builder.buildFrame(DumplFrame(
                 sender = sender,
                 cmdType = cmdType,
                 cmdSet = f.getInt("s"),
@@ -63,6 +64,7 @@ object Profiles {
                 dst = f.getInt("d"),
                 payload = hexToBytes(f.optString("p", ""))
             ))
+            if (useWrapper) wrapFrame(inner) else inner
         }
 
         return Profile(sender, cmdType, rounds, interFrame, interRound, readWindow, needsResponse, port, frames)
@@ -122,5 +124,27 @@ object Profiles {
         return ByteArray(clean.length / 2) { i ->
             clean.substring(i * 2, i * 2 + 2).toInt(16).toByte()
         }
+    }
+
+    /**
+     * Wraps an inner DUMPL frame with the 8-byte outer header used by
+     * certain commands (like LED control on port 40007).
+     *
+     * Format: [0x55][0xCC][0x30][0x75][4-byte LE length][inner frame]
+     */
+    private fun wrapFrame(inner: ByteArray): ByteArray {
+        val out = ByteArray(8 + inner.size)
+        out[0] = 0x55
+        out[1] = 0xCC.toByte()
+        out[2] = 0x30
+        out[3] = 0x75
+        // 4-byte little-endian length of the inner frame
+        val len = inner.size
+        out[4] = (len and 0xFF).toByte()
+        out[5] = ((len shr 8) and 0xFF).toByte()
+        out[6] = ((len shr 16) and 0xFF).toByte()
+        out[7] = ((len shr 24) and 0xFF).toByte()
+        System.arraycopy(inner, 0, out, 8, inner.size)
+        return out
     }
 }

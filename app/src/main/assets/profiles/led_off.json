@@ -1,16 +1,17 @@
 {
   "name": "LED Off",
-  "description": "Turns off the aircraft arm LEDs. Requires DJI Fly running with aircraft connected. Uses port 40007.",
+  "description": "Turns off the aircraft arm LEDs. Requires DJI Fly running with aircraft connected. Uses port 40007 with outer wrapper.",
   "sender": 2,
   "sender_desc": "CAMERA, index 0",
-  "cmd_type": 3,
-  "cmd_type_desc": "Request, ACK_BEFORE_EXEC, no encryption",
+  "cmd_type": 64,
+  "cmd_type_desc": "Request with ACK, no encryption (0x40)",
   "rounds": 2,
   "inter_frame_delay_ms": 100,
   "inter_round_delay_ms": 100,
   "read_window_ms": 100,
   "port": 40007,
+  "wrapper": true,
   "frames": [
-    { "s": 3, "i": 249, "d": 64, "p": "a259ceed00", "note": "FLYCONTROLLER write param: LED OFF" }
+    { "s": 3, "i": 249, "d": 3, "p": "a259ceed00", "note": "FLYCONTROLLER write param: LED OFF" }
   ]
 }
