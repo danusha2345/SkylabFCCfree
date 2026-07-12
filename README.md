@@ -47,13 +47,13 @@ You need both. The helper apps let you sideload FreeFCC onto the RC2.
 
 ## Compatibility
 
-| Drone | Controller | Status |
-|-------|-----------|--------|
-| DJI Mini 5 Pro | RC2 | Tested, working |
-| DJI Neo 1 | RC2 | Tested, working |
-| DJI Neo 2 | RC2 | Tested, working |
-| DJI Avata 360 | RC2 | Tested, working |
-| Other RC2 aircraft | RC2 | Should work (FCC profile is universal) |
+| Drone | Controller | FCC | 4G | Status |
+|-------|-----------|-----|-----|--------|
+| DJI Mini 5 Pro | RC2 | Yes | Not tested | FCC working |
+| DJI Neo 1 | RC2 | Yes | Not tested | FCC working |
+| DJI Neo 2 | RC2 | Yes | Not tested | FCC working |
+| DJI Avata 360 | RC2 | Yes | Not tested | FCC working |
+| Other RC2 aircraft | RC2 | Should work | Unknown | FCC profile is universal |
 
 If you test it on a model not listed here, please [open an issue](https://github.com/doesthings/FreeFCC/issues) and let us know.
 
@@ -104,6 +104,7 @@ Swipe from the right edge to open ATV Launcher. Open the Files app, find your fo
 2. Open FreeFCC and tap **Connect**
 3. Tap **Enable FCC Mode** and wait for the green checkmark
 4. For 4G: tap **Turn 4G ON** (the drone needs to be connected so the app can read its serial number)
+   > **Note:** 4G activation has not been tested on hardware yet. The frame format is based on the documented DUMPL protocol, but we have not confirmed it works in practice. If you try it, please [open an issue](https://github.com/doesthings/FreeFCC/issues) with the result.
 5. To stop: tap **Stop FCC Mode** to restore CE
 6. The **Info** tab lets you query the controller's hardware and firmware version
 
