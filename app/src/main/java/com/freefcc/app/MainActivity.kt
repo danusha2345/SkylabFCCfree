@@ -263,11 +263,39 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                 Spacer(Modifier.height(16.dp))
             }
         }
+
+        // Auto-FCC toggle card
+        Spacer(Modifier.height(16.dp))
+        GlowCard {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("Auto-FCC", color = TextWhite, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Automatically connect and enable FCC when the app opens.",
+                        color = TextGray,
+                        fontSize = 12.sp,
+                        lineHeight = 17.sp
+                    )
+                }
+                Spacer(Modifier.width(16.dp))
+                Switch(
+                    checked = state.autoFcc,
+                    onCheckedChange = { viewModel.toggleAutoFcc() },
+                    colors = SwitchDefaults.colors(
+                        checkedThumbColor = Cyan,
+                        checkedTrackColor = Cyan.copy(0.3f),
+                        uncheckedThumbColor = TextGray,
+                        uncheckedTrackColor = BgLight
+                    )
+                )
+            }
+        }
     }
 }
-
-// ═══════════════════════════════════════════════════════════════════════
-// Page 2: Info
 // ═══════════════════════════════════════════════════════════════════════
 
 @Composable

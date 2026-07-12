@@ -1,10 +1,12 @@
 package com.freefcc.app
 
 import android.app.Application
+import android.content.Context
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -14,8 +16,11 @@ import java.util.Date
 import java.util.Locale
 
 /**
- * Immutable UI state. The ViewModel updates this via copy(), and the
- * Compose layer observes it with collectAsStateWithLifecycle().
+ * Immutable UI state for the entire app.
+ *
+ * The ViewModel updates this via copy() and the Compose layer observes it
+ * with collectAsStateWithLifecycle(). Every field here represents something
+ * the UI needs to render.
  */
 data class AppState(
     val status: String = "idle",
@@ -30,15 +35,19 @@ data class AppState(
     val controllerModel: String = "",
     val deviceInfo: String = "",
     val isQueryingInfo: Boolean = false,
+    val autoFcc: Boolean = false,
     val logMessages: List<String> = emptyList()
 )
 
 /**
  * Manages all app state and business logic.
  *
- * The UI never touches the transport layer directly — it calls methods
- * on this ViewModel, which runs operations on a background thread and
- * updates the observable [state] flow.
+ * The UI never touches the transport layer directly. It calls methods on
+ * this ViewModel, which runs operations on a background thread (Dispatchers.IO)
+ * and updates the observable [state] flow. The UI reacts to state changes
+ * automatically via Compose's collectAsStateWithLifecycle().
+ *
+ * @param app The Application context, used for SharedPreferences and asset loading
  */
 class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
@@ -46,17 +55,113 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     val state: StateFlow<AppState> = _state.asStateFlow()
 
     private val transport = DumplTransport()
+    // Persists the auto-FCC toggle across app restarts
+    private val prefs = app.getSharedPreferences("freefcc", Context.MODE_PRIVATE)
 
+    /**
+     * Called once from MainActivity.onCreate(). Sets up the controller model
+     * name and checks if auto-FCC is enabled. If it is, kicks off the
+     * automatic connect-and-apply sequence.
+     */
     fun init() {
         val model = try { Build.DEVICE } catch (_: Exception) { "unknown" }
-        update { copy(controllerModel = model, status = "disconnected") }
+        val autoEnabled = prefs.getBoolean("auto_fcc", false)
+        update { copy(controllerModel = model, status = "disconnected", autoFcc = autoEnabled) }
+
+        if (autoEnabled) {
+            log("Auto-FCC enabled — connecting and applying...")
+            autoConnectAndApply()
+        }
+    }
+
+    // --- Auto-FCC ---
+
+    /**
+     * Toggles auto-FCC on or off. When enabled, the app will automatically
+     * connect to the controller and apply FCC mode every time it launches.
+     * The setting is saved to SharedPreferences and persists across restarts.
+     */
+    fun toggleAutoFcc() {
+        val newValue = !_state.value.autoFcc
+        prefs.edit().putBoolean("auto_fcc", newValue).apply()
+        update { copy(autoFcc = newValue) }
+        log(if (newValue) "Auto-FCC enabled — will auto-connect on next launch" else "Auto-FCC disabled")
+    }
+
+    /**
+     * Connects to the controller and applies FCC mode automatically.
+     * Waits for connection, then sends the FCC profile.
+     */
+    private fun autoConnectAndApply() {
+        runOnIO {
+            // Wait a moment for the UI to render
+            delay(1000)
+
+            // Try to connect
+            update { copy(status = "connecting", message = "Auto-connecting...") }
+            if (!transport.isReachable()) {
+                log("Auto-FCC: controller not found — is the drone powered on?")
+                update { copy(status = "disconnected", message = "Controller not found. Auto-FCC will retry when you tap Connect.") }
+                return@runOnIO
+            }
+
+            log("Auto-FCC: controller connected")
+            val serial = transport.probeSerial(1500)
+            update {
+                copy(
+                    status = "connected",
+                    isConnected = true,
+                    aircraftSerial = serial,
+                    message = "Connected. Auto-applying FCC..."
+                )
+            }
+            if (serial.isNotEmpty()) log("Aircraft serial: $serial")
+
+            // Apply FCC
+            delay(500)
+            update { copy(status = "applying", isBusy = true, busyProgress = 0f, message = "Auto-enabling FCC...") }
+            log("Auto-FCC: enabling FCC mode...")
+
+            val profile = Profiles.load(app, "fcc.json")
+            val success = transport.sendFrames(
+                frames = profile.frames,
+                rounds = profile.rounds,
+                interFrameDelayMs = profile.interFrameDelay,
+                interRoundDelayMs = profile.interRoundDelay,
+                readWindowMs = profile.readWindowMs
+            ) { progress -> update { copy(busyProgress = progress) } }
+
+            if (success) {
+                update {
+                    copy(
+                        status = "fcc_enabled",
+                        message = "FCC mode enabled (auto)",
+                        isFccEnabled = true,
+                        isBusy = false,
+                        busyProgress = 1f,
+                        isConnected = true
+                    )
+                }
+                log("Auto-FCC: FCC mode enabled")
+            } else {
+                update {
+                    copy(
+                        status = "connected",
+                        message = "Auto-FCC failed — try manually",
+                        isBusy = false,
+                        busyProgress = 0f
+                    )
+                }
+                log("Auto-FCC: apply failed — try manually")
+            }
+        }
     }
 
     // --- Connection ---
 
     /**
      * Checks if the DUMPL proxy at 127.0.0.1:40009 is reachable.
-     * If connected, reads the aircraft serial number.
+     * If connected, probes for the aircraft serial number.
      */
     fun connect() {
         update { copy(status = "connecting", message = "Connecting to controller...") }
@@ -133,7 +238,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Sends the CE restore command — a single frame that resets to factory region. */
+    /** Sends the CE restore command: a single frame that resets to factory region. */
     fun disableFcc() {
         update { copy(status = "restoring", isBusy = true, busyProgress = 0f, message = "Restoring CE mode...") }
         log("Restoring CE mode...")
@@ -160,7 +265,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /**
      * Sends the 128-frame 4G activation profile.
-     * The aircraft serial is embedded in each frame's payload.
+     * The aircraft serial is embedded in each frame's payload at runtime.
      */
     fun enable4g() {
         update { copy(is4gBusy = true, busyProgress = 0f, message = "Turning 4G on...") }
@@ -226,7 +331,8 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /**
      * Queries the controller for hardware version, bootloader version, and
-     * app version via the GENERAL VersionInquiry command (cmd_set=0, cmd_id=1).
+     * firmware version via the GENERAL VersionInquiry command
+     * (cmd_set=0, cmd_id=1). Uses sendAndReceive to capture the response.
      */
     fun queryDeviceInfo() {
         if (!isControllerReachable()) return
@@ -252,7 +358,6 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Re-probes for the aircraft serial number. */
     fun probeSerial() {
         log("Probing for aircraft serial...")
         runOnIO {
@@ -268,12 +373,14 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     // --- Helpers ---
 
+    /** Returns true if the controller is connected, logs a hint if not. */
     private fun isControllerReachable(): Boolean {
         if (_state.value.isConnected) return true
         log("Connect to the controller first")
         return false
     }
 
+    /** Returns the cached serial, or probes the controller if not yet known. */
     private fun getOrProbeSerial(): String {
         var serial = _state.value.aircraftSerial
         if (serial.isEmpty()) {
@@ -288,15 +395,13 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     /**
-     * Parses a DUML VersionInquiry response payload.
+     * Parses a DUML VersionInquiry response payload into a human-readable string.
      *
-     * Response format (from dji-firmware-tools DJIPayload_General_VersionInquiryRe):
-     *   byte  0     unknown
-     *   byte  1     unknown
-     *   bytes 2-17  hardware version (16-char ASCII string)
-     *   bytes 18-21 bootloader version (uint32 LE)
-     *   bytes 22-25 app version (uint32 LE)
-     *   ...
+     * Response layout (from dji-firmware-tools DJIPayload_General_VersionInquiryRe):
+     *   byte  0-1    unknown
+     *   bytes 2-17   hardware version (16-char ASCII string)
+     *   bytes 18-21  bootloader version (uint32 LE)
+     *   bytes 22-25  firmware version (uint32 LE)
      */
     private fun formatVersionResponse(payload: ByteArray): String {
         val lines = mutableListOf<String>()
@@ -316,7 +421,6 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             lines.add("Firmware: ${formatVersion(appVersion)}")
         }
 
-        // Add raw hex for debugging
         lines.add("")
         lines.add("Raw payload (${payload.size} bytes):")
         lines.add(payload.joinToString(" ") { "%02x".format(it) })
@@ -324,6 +428,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         return lines.joinToString("\n")
     }
 
+    /** Reads a 32-bit little-endian unsigned integer from a byte array. */
     private fun readUInt32LE(data: ByteArray, offset: Int): Long {
         return ((data[offset].toLong() and 0xFF)) or
                ((data[offset + 1].toLong() and 0xFF) shl 8) or
@@ -331,6 +436,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                ((data[offset + 3].toLong() and 0xFF) shl 24)
     }
 
+    /** Formats a DJI firmware version uint32 as major.minor.patch.build. */
     private fun formatVersion(version: Long): String {
         val major = (version shr 24) and 0xFF
         val minor = (version shr 16) and 0xFF
@@ -339,16 +445,19 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         return "$major.$minor.$patch.$build"
     }
 
+    /** Atomically updates the state via a copy() block. */
     private fun update(block: AppState.() -> AppState) {
         _state.value = _state.value.block()
     }
 
+    /** Adds a timestamped entry to the activity log (most recent first, max 50). */
     private fun log(message: String) {
         val time = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
         val entry = "[$time] $message"
         update { copy(logMessages = (listOf(entry) + logMessages).take(50)) }
     }
 
+    /** Launches a coroutine on Dispatchers.IO for network operations. */
     private fun runOnIO(block: suspend () -> Unit) {
         viewModelScope.launch(Dispatchers.IO) { block() }
     }
