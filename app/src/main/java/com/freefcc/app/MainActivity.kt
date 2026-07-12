@@ -435,71 +435,109 @@ private fun SupportPage() {
     ) {
         Spacer(Modifier.height(56.dp))
         PageTitle("Support FreeFCC", Icons.Outlined.FavoriteBorder)
-        Spacer(Modifier.height(28.dp))
+        Spacer(Modifier.height(36.dp))
 
-        // Pulsing heart
+        // Pulsing heart with glow
         val heartPulse = rememberInfiniteTransition(label = "heart")
         val heartScale by heartPulse.animateFloat(
-            1f, 1.12f,
-            infiniteRepeatable(tween(1000, easing = EaseInOutSine), RepeatMode.Reverse),
+            1f, 1.15f,
+            infiniteRepeatable(tween(900, easing = EaseInOutSine), RepeatMode.Reverse),
             label = "heartScale"
         )
+        val heartGlow by heartPulse.animateFloat(
+            0.04f, 0.10f,
+            infiniteRepeatable(tween(900, easing = EaseInOutSine), RepeatMode.Reverse),
+            label = "heartGlow"
+        )
 
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(120.dp)) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(140.dp)) {
             Box(
                 Modifier
-                    .size(90.dp)
+                    .size(110.dp)
                     .background(
                         Brush.radialGradient(
-                            listOf(Red.copy(0.06f), Color.Transparent),
-                            radius = 100f
+                            listOf(Red.copy(heartGlow), Color.Transparent),
+                            radius = 120f
                         )
                     )
             )
             Icon(
                 Icons.Filled.Favorite,
                 null,
-                tint = Red.copy(0.65f),
-                modifier = Modifier.size(52.dp).scale(heartScale)
+                tint = Red.copy(0.7f),
+                modifier = Modifier.size(56.dp).scale(heartScale)
             )
         }
 
-        Spacer(Modifier.height(20.dp))
-        BodyText("FreeFCC is free and open source.", TextWhite)
-        Spacer(Modifier.height(6.dp))
-        BodyText("If it helped you, consider supporting development.", TextGray)
         Spacer(Modifier.height(28.dp))
+        Text(
+            "FreeFCC is free and open source.",
+            color = TextWhite,
+            fontSize = 16.sp,
+            fontWeight = FontWeight.SemiBold,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            "If it helped you out, consider buying me a coffee.\nIt helps cover server costs and keeps the project going.",
+            color = TextGray,
+            fontSize = 13.sp,
+            lineHeight = 20.sp,
+            textAlign = TextAlign.Center
+        )
+        Spacer(Modifier.height(32.dp))
 
-        GlowButton(
-            "Support on Ko-fi",
-            Cyan,
-            filled = true
+        // Big Ko-fi button
+        Button(
+            onClick = {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://ko-fi.com/freefcc")))
+            },
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color(0xFFFF5E5B),
+                contentColor = Color.White
+            ),
+            shape = RoundedCornerShape(14.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(58.dp)
         ) {
-            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://ko-fi.com/freefcc")))
+            Icon(Icons.Filled.Coffee, null, modifier = Modifier.size(22.dp))
+            Spacer(Modifier.width(10.dp))
+            Text("Buy me a coffee", fontWeight = FontWeight.Bold, fontSize = 16.sp)
         }
 
-        Spacer(Modifier.height(16.dp))
+        Spacer(Modifier.height(14.dp))
 
-        Text(
-            "ko-fi.com/freefcc",
-            color = Cyan.copy(0.5f),
-            fontSize = 13.sp,
-            fontFamily = FontFamily.Monospace,
-            modifier = Modifier.clickable {
-                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://ko-fi.com/freefcc")))
-            }
-        )
+        // GitHub button
+        Button(
+            onClick = {
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/doesthings/FreeFCC")))
+            },
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.Transparent,
+                contentColor = TextWhite
+            ),
+            shape = RoundedCornerShape(14.dp),
+            border = BorderStroke(1.dp, CardBorder),
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(52.dp)
+        ) {
+            Icon(Icons.Filled.Code, null, modifier = Modifier.size(20.dp))
+            Spacer(Modifier.width(10.dp))
+            Text("Source on GitHub", fontWeight = FontWeight.Medium, fontSize = 14.sp)
+        }
 
-        Spacer(Modifier.height(36.dp))
+        Spacer(Modifier.height(40.dp))
 
         // About card
         GlowCard {
             Text("About", color = TextWhite, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
             BodyText(
-                "FreeFCC is an open-source tool for unlocking FCC mode on DJI controllers. " +
-                "It uses the publicly documented DUMPL protocol and requires no server, " +
-                "license, or internet connection.",
+                "FreeFCC sends DUMPL commands to your DJI controller to unlock FCC mode and enable 4G. " +
+                "It works fully offline with no server or license. " +
+                "The protocol is publicly documented in the dji-firmware-tools project.",
                 TextGray
             )
             Spacer(Modifier.height(16.dp))
@@ -509,7 +547,9 @@ private fun SupportPage() {
             Spacer(Modifier.height(12.dp))
             InfoRow("License", "AGPL-3.0")
             Spacer(Modifier.height(12.dp))
-            InfoRow("Protocol", "DUMPL (0x55)")
+            InfoRow("Protocol", "DUMPL")
+            Spacer(Modifier.height(12.dp))
+            InfoRow("Source", "github.com/doesthings/FreeFCC")
             Spacer(Modifier.height(16.dp))
             DividerLine()
             Spacer(Modifier.height(16.dp))
