@@ -179,15 +179,13 @@ You can open these files in any text editor, read every byte that gets sent, and
 
 ### How the Frames Were Obtained
 
-The DUMPL proxy on DJI controllers listens on `127.0.0.1:40009` and accepts plain unencrypted TCP connections. Any app on the controller can observe this traffic:
+The DUMPL proxy on DJI controllers listens on `127.0.0.1:40009` and accepts plain unencrypted TCP connections. The command frames were identified by capturing loopback traffic on the controller while the radio was active, then extracting the `0x55`-prefixed DUMPL packets from the capture:
 
 ```bash
 tcpdump -i lo -w /sdcard/capture.pcap port 40009
 ```
 
-While a licensed FCC unlock tool sends its commands, capture the loopback traffic and extract the `0x55`-prefixed frames from the pcap. The frames are plaintext on the local socket with no encryption.
-
-The wire format, CRC algorithms, command sets, and device types are all documented in the [dji-firmware-tools](https://github.com/o-gs/dji-firmware-tools) repo (GPL-3.0). This project's `DumplBuilder` class uses the same CRC-8 (polynomial 0x8C, init 0x77) and CRC-16 (polynomial 0x1021, init 0x3692) as the reference implementation.
+The frames are plaintext on the local socket with no encryption. Once captured, the payloads were decoded using the publicly documented command set and device type enums from the [dji-firmware-tools](https://github.com/o-gs/dji-firmware-tools) project (GPL-3.0). This project's `DumplBuilder` class implements the same CRC-8 (polynomial 0x8C, init 0x77) and CRC-16 (polynomial 0x1021, init 0x3692) as the reference implementation to build valid frames from the decoded command definitions.
 
 ## Project Structure
 
