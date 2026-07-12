@@ -50,7 +50,7 @@ You need both. The helper apps let you sideload FreeFCC onto the RC2.
 
 ## Compatibility
 
-**Only tested on the DJI RC2 controller.** For DJI RC Pro 2 or RC Plus controllers, use [freefcc-launcher](https://github.com/doesthings/freefcc-launcher) instead. FreeFCC uses the RC2's DUMPL proxy which may not be available on other controllers without the launcher.
+**Only tested on the DJI RC2 controller.** For DJI RC Pro 2 or RC Plus controllers, use [freefcc-launcher](https://github.com/doesthings/freefcc-launcher) instead, since not all controllers can install APKs from a microSD card the way the RC2 does.
 
 | Drone | Controller | FCC | 4G | LED | Status |
 |-------|-----------|-----|-----|-----|--------|
