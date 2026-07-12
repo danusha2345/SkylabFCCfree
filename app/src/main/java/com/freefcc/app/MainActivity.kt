@@ -29,19 +29,19 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.sin
 import kotlin.math.PI
 
 // ═══════════════════════════════════════════════════════════════════════
-// Color palette — deep dark + neon accents
+// Colors
 // ═══════════════════════════════════════════════════════════════════════
 
 private val BgDark = Color(0xFF070A14)
@@ -53,13 +53,14 @@ private val Cyan = Color(0xFF4FC3F7)
 private val Green = Color(0xFF34D399)
 private val Amber = Color(0xFFF59E0B)
 private val Red = Color(0xFFEF4444)
-private val Purple = Color(0xFFA78BFA)
 private val TextWhite = Color(0xFFF0F4FF)
 private val TextGray = Color(0xFF7A85A3)
 private val TextDim = Color(0xFF4A5374)
 
+private val BottomNavHeight = 72.dp
+
 // ═══════════════════════════════════════════════════════════════════════
-// Main activity
+// Activity
 // ═══════════════════════════════════════════════════════════════════════
 
 class MainActivity : ComponentActivity() {
@@ -86,7 +87,7 @@ class MainActivity : ComponentActivity() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Root — gradient background, pager, bottom nav
+// Root layout
 // ═══════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -95,44 +96,42 @@ private fun AppRoot(viewModel: FccViewModel) {
     val pagerState = rememberPagerState(initialPage = 0) { 4 }
     val scope = rememberCoroutineScope()
 
-    // Entrance fade
     val entrance = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
         entrance.animateTo(1f, tween(700, easing = EaseOutCubic))
     }
 
-    Box(
+    BoxWithConstraints(
         modifier = Modifier
             .fillMaxSize()
             .background(
                 Brush.verticalGradient(
-                    listOf(BgDark, BgMid, BgDark, BgDark),
+                    listOf(BgDark, BgMid, BgDark),
                     startY = 0f,
-                    endY = 2000f
+                    endY = Float.POSITIVE_INFINITY
                 )
             )
             .alpha(entrance.value)
     ) {
-        // Ambient glow at top
+        // Ambient glow — decorative only
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(280.dp)
+                .height(300.dp)
                 .align(Alignment.TopCenter)
                 .background(
                     Brush.radialGradient(
-                        listOf(Cyan.copy(0.06f), Color.Transparent),
-                        center = Offset(Float.POSITIVE_INFINITY, 0f),
+                        listOf(Cyan.copy(0.05f), Color.Transparent),
+                        center = Offset(0f, 0f),
                         radius = 600f
                     )
                 )
         )
 
+        // Page content — fills space above the bottom nav
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(bottom = 76.dp),
+            modifier = Modifier.fillMaxSize(),
             userScrollEnabled = true
         ) { page ->
             when (page) {
@@ -143,6 +142,7 @@ private fun AppRoot(viewModel: FccViewModel) {
             }
         }
 
+        // Bottom nav — fixed at the bottom, on top of everything
         BottomNavBar(
             currentPage = pagerState.currentPage,
             onPageSelected = { index ->
@@ -163,50 +163,56 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 22.dp),
+            .padding(horizontal = 24.dp)
+            .padding(bottom = BottomNavHeight + 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(52.dp))
+        Spacer(Modifier.height(56.dp))
         AppHeader(state.controllerModel)
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(28.dp))
         ConnectionPill(state)
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(28.dp))
 
-        // ── Main FCC card ──
         GlowCard {
             ModeBadge(state)
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(20.dp))
 
             when {
-                state.isBusy -> ProgressDisplay(state.busyProgress, state.message)
+                state.isBusy -> {
+                    ProgressDisplay(state.busyProgress, state.message)
+                }
                 !state.isConnected -> {
-                    StatusText("Connect your drone to the controller, then power it on.", TextGray)
-                    Spacer(Modifier.height(18.dp))
+                    BodyText("Connect your drone to the controller, then power it on.")
+                    Spacer(Modifier.height(20.dp))
                     GlowButton("Connect", Cyan) { viewModel.connect() }
                 }
                 state.isFccEnabled -> {
-                    StatusText("FCC mode is active.", Green)
-                    Spacer(Modifier.height(16.dp))
+                    BodyText("FCC mode is active.", Green)
+                    Spacer(Modifier.height(20.dp))
                     GlowButton("Stop FCC Mode", Red) { viewModel.disableFcc() }
-                    Spacer(Modifier.height(10.dp))
+                    Spacer(Modifier.height(12.dp))
                     GlowButton("Re-Apply FCC", Cyan, filled = false) { viewModel.enableFcc() }
                 }
                 else -> {
-                    if (state.message.isNotEmpty()) StatusText(state.message, TextGray)
-                    Spacer(Modifier.height(18.dp))
+                    if (state.message.isNotEmpty()) {
+                        BodyText(state.message)
+                        Spacer(Modifier.height(20.dp))
+                    } else {
+                        BodyText("Tap the button below to enable FCC mode.")
+                        Spacer(Modifier.height(20.dp))
+                    }
                     GlowButton("Enable FCC Mode", Cyan) { viewModel.enableFcc() }
                 }
             }
 
             if (state.aircraftSerial.isNotEmpty()) {
-                Spacer(Modifier.height(14.dp))
+                Spacer(Modifier.height(16.dp))
                 SerialRow(state.aircraftSerial) { viewModel.probeSerial() }
             }
         }
 
         Spacer(Modifier.height(16.dp))
 
-        // ── 4G card ──
         AnimatedVisibility(
             visible = state.isConnected,
             enter = fadeIn(tween(300)) + expandVertically(tween(300)),
@@ -214,25 +220,33 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
         ) {
             Column {
                 GlowCard {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
                         SignalWaveIcon(
                             active = state.is4gEnabled,
                             color = Amber,
-                            modifier = Modifier.size(24.dp)
+                            modifier = Modifier.size(28.dp)
                         )
                         Spacer(Modifier.width(12.dp))
-                        Text("4G Mode", color = TextWhite, fontSize = 18.sp, fontWeight = FontWeight.Bold)
-                        Spacer(Modifier.weight(1f))
+                        Text(
+                            "4G Mode",
+                            color = TextWhite,
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f)
+                        )
                         if (state.is4gEnabled) {
                             StatusDot(Green)
                         }
                     }
-                    Spacer(Modifier.height(10.dp))
-                    StatusText(
+                    Spacer(Modifier.height(12.dp))
+                    BodyText(
                         if (state.is4gEnabled) "4G transmission is active." else "Enable 4G transmission on the aircraft.",
                         if (state.is4gEnabled) Green else TextGray
                     )
-                    Spacer(Modifier.height(18.dp))
+                    Spacer(Modifier.height(20.dp))
 
                     if (state.is4gBusy) {
                         ProgressDisplay(state.busyProgress, "Sending 4G frames...")
@@ -249,8 +263,6 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                 Spacer(Modifier.height(16.dp))
             }
         }
-
-        Spacer(Modifier.height(80.dp))
     }
 }
 
@@ -264,28 +276,34 @@ private fun InfoPage(state: AppState, viewModel: FccViewModel) {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 22.dp),
+            .padding(horizontal = 24.dp)
+            .padding(bottom = BottomNavHeight + 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(52.dp))
+        Spacer(Modifier.height(56.dp))
         PageTitle("Device Info", Icons.Outlined.Info)
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(28.dp))
 
-        // Connection status
         GlowCard {
             Text("Connection", color = TextWhite, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(14.dp))
-            InfoRow("Controller", state.controllerModel.ifEmpty { "—" })
+            Spacer(Modifier.height(16.dp))
+            InfoRow("Controller", state.controllerModel.ifEmpty { "Unknown" })
+            Spacer(Modifier.height(10.dp))
             DividerLine()
-            InfoRow("Status", if (state.isConnected) "Connected" else "Disconnected",
-                valueColor = if (state.isConnected) Green else TextGray)
+            Spacer(Modifier.height(10.dp))
+            InfoRow(
+                "Status",
+                if (state.isConnected) "Connected" else "Disconnected",
+                valueColor = if (state.isConnected) Green else TextGray
+            )
+            Spacer(Modifier.height(10.dp))
             DividerLine()
-            InfoRow("Aircraft S/N", state.aircraftSerial.ifEmpty { "—" })
+            Spacer(Modifier.height(10.dp))
+            InfoRow("Aircraft S/N", state.aircraftSerial.ifEmpty { "Not detected" })
         }
 
         Spacer(Modifier.height(16.dp))
 
-        // Version info
         GlowCard {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -296,19 +314,20 @@ private fun InfoPage(state: AppState, viewModel: FccViewModel) {
                 IconButton(
                     onClick = { viewModel.queryDeviceInfo() },
                     enabled = state.isConnected && !state.isQueryingInfo,
-                    modifier = Modifier.size(36.dp)
+                    modifier = Modifier.size(40.dp)
                 ) {
                     if (state.isQueryingInfo) {
                         CircularProgressIndicator(
-                            strokeWidth = 2.dp, color = Cyan,
-                            modifier = Modifier.size(20.dp)
+                            strokeWidth = 2.dp,
+                            color = Cyan,
+                            modifier = Modifier.size(22.dp)
                         )
                     } else {
-                        Icon(Icons.Default.Refresh, "Query", tint = Cyan, modifier = Modifier.size(22.dp))
+                        Icon(Icons.Default.Refresh, "Query", tint = Cyan, modifier = Modifier.size(24.dp))
                     }
                 }
             }
-            Spacer(Modifier.height(10.dp))
+            Spacer(Modifier.height(12.dp))
 
             if (state.deviceInfo.isNotEmpty()) {
                 Text(
@@ -316,17 +335,15 @@ private fun InfoPage(state: AppState, viewModel: FccViewModel) {
                     color = TextGray,
                     fontSize = 12.sp,
                     fontFamily = FontFamily.Monospace,
-                    lineHeight = 18.sp,
+                    lineHeight = 20.sp,
                     modifier = Modifier.fillMaxWidth()
                 )
             } else if (!state.isConnected) {
-                StatusText("Connect to the controller first.", TextDim)
+                BodyText("Connect to the controller first.", TextDim)
             } else {
-                StatusText("Tap the refresh button to query version info.", TextGray)
+                BodyText("Tap the refresh button to query version info.")
             }
         }
-
-        Spacer(Modifier.height(80.dp))
     }
 }
 
@@ -340,26 +357,27 @@ private fun LogPage(state: AppState) {
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 22.dp),
+            .padding(horizontal = 24.dp)
+            .padding(bottom = BottomNavHeight + 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(52.dp))
+        Spacer(Modifier.height(56.dp))
         PageTitle("Activity Log", Icons.Outlined.History)
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(28.dp))
 
         GlowCard {
             if (state.logMessages.isEmpty()) {
                 Box(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 40.dp),
+                    modifier = Modifier.fillMaxWidth().padding(vertical = 48.dp),
                     contentAlignment = Alignment.Center
                 ) {
-                    StatusText("No activity yet.", TextDim)
+                    BodyText("No activity yet.", TextDim)
                 }
             } else {
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .heightIn(max = 550.dp)
+                        .heightIn(max = 600.dp)
                         .verticalScroll(rememberScrollState())
                 ) {
                     state.logMessages.forEachIndexed { index, entry ->
@@ -368,29 +386,34 @@ private fun LogPage(state: AppState) {
                             entry.contains("connected", true) ||
                             entry.contains("restored", true) ||
                             entry.contains("received", true) -> Green
+
                             entry.contains("fail", true) ||
                             entry.contains("error", true) -> Red
+
                             entry.contains("Enabling", true) ||
                             entry.contains("Disabling", true) ||
                             entry.contains("Probing", true) ||
                             entry.contains("Querying", true) ||
                             entry.contains("Loaded", true) -> Amber
+
                             else -> Cyan.copy(0.6f)
                         }
-                        if (index > 0) DividerLine(alpha = 0.3f)
+                        if (index > 0) {
+                            Spacer(Modifier.height(2.dp))
+                            DividerLine(alpha = 0.3f)
+                            Spacer(Modifier.height(2.dp))
+                        }
                         Text(
                             entry,
                             color = color,
                             fontSize = 11.sp,
                             fontFamily = FontFamily.Monospace,
-                            modifier = Modifier.padding(vertical = 5.dp)
+                            modifier = Modifier.padding(vertical = 6.dp)
                         )
                     }
                 }
             }
         }
-
-        Spacer(Modifier.height(80.dp))
     }
 }
 
@@ -401,129 +424,125 @@ private fun LogPage(state: AppState) {
 @Composable
 private fun SupportPage() {
     val context = androidx.compose.ui.platform.LocalContext.current
+
     Column(
         modifier = Modifier
             .fillMaxSize()
             .verticalScroll(rememberScrollState())
-            .padding(horizontal = 22.dp),
+            .padding(horizontal = 24.dp)
+            .padding(bottom = BottomNavHeight + 32.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
-        Spacer(Modifier.height(52.dp))
+        Spacer(Modifier.height(56.dp))
         PageTitle("Support FreeFCC", Icons.Outlined.FavoriteBorder)
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(28.dp))
 
-        // Heart icon with pulse
+        // Pulsing heart
         val heartPulse = rememberInfiniteTransition(label = "heart")
         val heartScale by heartPulse.animateFloat(
-            1f, 1.15f,
+            1f, 1.12f,
             infiniteRepeatable(tween(1000, easing = EaseInOutSine), RepeatMode.Reverse),
             label = "heartScale"
         )
 
-        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(100.dp)) {
+        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(120.dp)) {
             Box(
                 Modifier
-                    .size(80.dp)
+                    .size(90.dp)
                     .background(
                         Brush.radialGradient(
-                            listOf(Red.copy(0.08f), Color.Transparent),
-                            radius = 80f
+                            listOf(Red.copy(0.06f), Color.Transparent),
+                            radius = 100f
                         )
                     )
             )
             Icon(
                 Icons.Filled.Favorite,
                 null,
-                tint = Red.copy(0.7f),
-                modifier = Modifier.size(48.dp).scale(heartScale)
+                tint = Red.copy(0.65f),
+                modifier = Modifier.size(52.dp).scale(heartScale)
             )
         }
 
-        Spacer(Modifier.height(16.dp))
-        StatusText("FreeFCC is free and open source.", TextWhite)
-        Spacer(Modifier.height(4.dp))
-        StatusText("If it helped you, consider supporting development.", TextGray)
-        Spacer(Modifier.height(24.dp))
+        Spacer(Modifier.height(20.dp))
+        BodyText("FreeFCC is free and open source.", TextWhite)
+        Spacer(Modifier.height(6.dp))
+        BodyText("If it helped you, consider supporting development.", TextGray)
+        Spacer(Modifier.height(28.dp))
 
-        // Ko-fi button
         GlowButton(
             "Support on Ko-fi",
             Cyan,
             filled = true
         ) {
-            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://ko-fi.com/freefcc"))
-            context.startActivity(intent)
+            context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://ko-fi.com/freefcc")))
         }
 
         Spacer(Modifier.height(16.dp))
 
-        // Link text
         Text(
             "ko-fi.com/freefcc",
-            color = Cyan.copy(0.6f),
+            color = Cyan.copy(0.5f),
             fontSize = 13.sp,
             fontFamily = FontFamily.Monospace,
             modifier = Modifier.clickable {
-                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://ko-fi.com/freefcc"))
-                context.startActivity(intent)
+                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://ko-fi.com/freefcc")))
             }
         )
 
-        Spacer(Modifier.height(32.dp))
+        Spacer(Modifier.height(36.dp))
 
         // About card
         GlowCard {
             Text("About", color = TextWhite, fontSize = 16.sp, fontWeight = FontWeight.Bold)
-            Spacer(Modifier.height(10.dp))
-            StatusText("FreeFCC is an open-source tool for unlocking FCC mode on DJI controllers. It uses the publicly documented DUMPL protocol and requires no server, license, or internet connection.", TextGray)
             Spacer(Modifier.height(12.dp))
+            BodyText(
+                "FreeFCC is an open-source tool for unlocking FCC mode on DJI controllers. " +
+                "It uses the publicly documented DUMPL protocol and requires no server, " +
+                "license, or internet connection.",
+                TextGray
+            )
+            Spacer(Modifier.height(16.dp))
             DividerLine()
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(16.dp))
             InfoRow("Version", "1.0")
-            Spacer(Modifier.height(6.dp))
-            InfoRow("License", "Open Source")
-            Spacer(Modifier.height(6.dp))
+            Spacer(Modifier.height(12.dp))
+            InfoRow("License", "AGPL-3.0")
+            Spacer(Modifier.height(12.dp))
             InfoRow("Protocol", "DUMPL (0x55)")
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(16.dp))
             DividerLine()
-            Spacer(Modifier.height(12.dp))
-            StatusText("Not affiliated with DJI. Use at your own risk.", TextDim)
+            Spacer(Modifier.height(16.dp))
+            BodyText("Not affiliated with DJI. Use at your own risk.", TextDim)
         }
-
-        Spacer(Modifier.height(80.dp))
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Components
+// Shared components
 // ═══════════════════════════════════════════════════════════════════════
 
 @Composable
 private fun AppHeader(model: String) {
-    // Pulsing glow behind title
     val glow = rememberInfiniteTransition(label = "hdr")
     val glowAlpha by glow.animateFloat(
-        0.4f, 0.8f,
+        0.5f, 0.9f,
         infiniteRepeatable(tween(2800, easing = EaseInOutSine), RepeatMode.Reverse),
         label = "hdrGlow"
     )
-    // Title slide-in
-    val slideIn = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { slideIn.animateTo(1f, tween(800, delayMillis = 200, easing = EaseOutCubic)) }
 
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        modifier = Modifier.alpha(slideIn.value)
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            // Glow backdrop
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier.size(200.dp, 60.dp)
+        ) {
             Box(
                 Modifier
-                    .size(160.dp, 50.dp)
+                    .size(200.dp, 60.dp)
                     .background(
                         Brush.radialGradient(
-                            listOf(Cyan.copy(glowAlpha * 0.15f), Color.Transparent),
-                            radius = 120f
+                            listOf(Cyan.copy(glowAlpha * 0.12f), Color.Transparent),
+                            radius = 140f
                         )
                     )
             )
@@ -535,23 +554,19 @@ private fun AppHeader(model: String) {
                 letterSpacing = 1.sp
             )
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(6.dp))
         Text(
             if (model.isNotEmpty()) "v1.0 · $model" else "v1.0",
-            color = TextDim, fontSize = 11.sp, fontWeight = FontWeight.Medium
+            color = TextDim,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium
         )
     }
 }
 
 @Composable
 private fun PageTitle(title: String, icon: androidx.compose.ui.graphics.vector.ImageVector) {
-    val slideIn = remember { Animatable(0f) }
-    LaunchedEffect(Unit) { slideIn.animateTo(1f, tween(500, easing = EaseOutCubic)) }
-
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        modifier = Modifier.alpha(slideIn.value)
-    ) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, null, tint = Cyan, modifier = Modifier.size(26.dp))
         Spacer(Modifier.width(12.dp))
         Text(title, color = TextWhite, fontSize = 24.sp, fontWeight = FontWeight.Bold)
@@ -567,19 +582,19 @@ private fun ConnectionPill(state: AppState) {
         else -> "Disconnected" to TextGray
     }
 
-    // Pop animation on state change
-    val popScale = remember { Animatable(1f) }
+    // Bounce-in on state change (no scale overflow — use alpha + small bump)
+    val bounce = remember { Animatable(1f) }
     LaunchedEffect(state.isConnected) {
         if (state.isConnected) {
-            popScale.animateTo(1.2f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
-            popScale.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
+            bounce.snapTo(0.8f)
+            bounce.animateTo(1f, spring(dampingRatio = Spring.DampingRatioMediumBouncy))
         }
     }
 
-    // Glow for connected state
+    // Pulsing glow when connected
     val glowAlpha: Float = if (state.isConnected) {
         val t = rememberInfiniteTransition(label = "pill")
-        val a by t.animateFloat(0.15f, 0.35f, infiniteRepeatable(tween(1800), RepeatMode.Reverse), label = "pillGlow")
+        val a by t.animateFloat(0.1f, 0.25f, infiniteRepeatable(tween(1800), RepeatMode.Reverse), label = "pillGlow")
         a
     } else 0f
 
@@ -589,22 +604,21 @@ private fun ConnectionPill(state: AppState) {
         border = BorderStroke(1.dp, color.copy(0.3f)),
         modifier = Modifier
             .padding(4.dp)
-            .scale(popScale.value)
+            .scale(bounce.value)
             .drawBehind {
                 if (glowAlpha > 0f) {
-                    drawCircle(color.copy(glowAlpha), radius = size.maxDimension * 0.8f)
+                    drawCircle(color.copy(glowAlpha), radius = size.maxDimension * 0.75f)
                 }
             }
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 22.dp, vertical = 10.dp)
+            modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)
         ) {
             Box(
                 modifier = Modifier
                     .size(8.dp)
                     .background(color, CircleShape)
-                    .drawBehind { drawCircle(color.copy(0.4f), radius = 12f) }
             )
             Spacer(Modifier.width(10.dp))
             Text(label, color = color, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
@@ -618,10 +632,9 @@ private fun ModeBadge(state: AppState) {
     val bgBrush = if (active) {
         Brush.horizontalGradient(listOf(Color(0xFF0A2540), Color(0xFF0E3050), Color(0xFF0A2540)))
     } else {
-        Brush.horizontalGradient(listOf(BgLight.copy(0.5f), BgLight.copy(0.3f)))
+        Brush.horizontalGradient(listOf(BgLight.copy(0.4f), BgLight.copy(0.2f)))
     }
 
-    // Bouncy checkmark
     val checkScale = remember { Animatable(0f) }
     LaunchedEffect(active) {
         if (active) {
@@ -633,13 +646,6 @@ private fun ModeBadge(state: AppState) {
         }
     }
 
-    // Animated border glow when active
-    val borderGlow: Float = if (active) {
-        val t = rememberInfiniteTransition(label = "modeBorder")
-        val a by t.animateFloat(0.1f, 0.3f, infiniteRepeatable(tween(2000), RepeatMode.Reverse), label = "modeGlow")
-        a
-    } else 0f
-
     Row(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
@@ -647,18 +653,9 @@ private fun ModeBadge(state: AppState) {
             .fillMaxWidth()
             .clip(RoundedCornerShape(14.dp))
             .background(bgBrush)
-            .drawBehind {
-                if (borderGlow > 0f) {
-                    drawRoundRect(
-                        Green.copy(borderGlow),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(14.dp.toPx()),
-                        style = Stroke(width = 2.dp.toPx())
-                    )
-                }
-            }
-            .padding(horizontal = 22.dp, vertical = 16.dp)
+            .padding(horizontal = 24.dp, vertical = 18.dp)
     ) {
-        Column {
+        Column(modifier = Modifier.weight(1f)) {
             Text(
                 "MODE",
                 color = TextDim,
@@ -666,17 +663,17 @@ private fun ModeBadge(state: AppState) {
                 fontWeight = FontWeight.Black,
                 letterSpacing = 2.sp
             )
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
                 if (active) "FCC" else "CE",
                 color = if (active) Green else TextWhite,
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Black
             )
-            Spacer(Modifier.height(2.dp))
+            Spacer(Modifier.height(4.dp))
             Text(
                 if (active) "High-power region active" else "Default region",
-                color = if (active) Green.copy(0.8f) else TextGray,
+                color = if (active) Green.copy(0.7f) else TextGray,
                 fontSize = 12.sp
             )
         }
@@ -698,8 +695,7 @@ private fun ModeBadge(state: AppState) {
 private fun ProgressDisplay(progress: Float, label: String) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, color = Cyan, fontSize = 14.sp, fontWeight = FontWeight.Medium)
-        Spacer(Modifier.height(14.dp))
-        // Custom progress bar with gradient
+        Spacer(Modifier.height(16.dp))
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -712,43 +708,48 @@ private fun ProgressDisplay(progress: Float, label: String) {
                     .fillMaxWidth(progress)
                     .height(8.dp)
                     .clip(RoundedCornerShape(4.dp))
-                    .background(
-                        Brush.horizontalGradient(listOf(Cyan, Green))
-                    )
+                    .background(Brush.horizontalGradient(listOf(Cyan, Green)))
             )
         }
-        Spacer(Modifier.height(8.dp))
+        Spacer(Modifier.height(10.dp))
         Text(
             "${(progress * 100).toInt()}%",
-            color = TextGray, fontSize = 12.sp,
-            fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Medium
+            color = TextGray,
+            fontSize = 12.sp,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Medium
         )
     }
 }
 
 @Composable
-private fun StatusText(text: String, color: Color = TextGray) {
-    Text(text, color = color, fontSize = 13.sp, lineHeight = 19.sp)
+private fun BodyText(text: String, color: Color = TextGray) {
+    Text(
+        text,
+        color = color,
+        fontSize = 13.sp,
+        lineHeight = 20.sp
+    )
 }
 
 @Composable
 private fun SerialRow(serial: String, onRefresh: () -> Unit) {
     Surface(
-        color = BgLight.copy(0.5f),
-        shape = RoundedCornerShape(8.dp),
+        color = BgLight.copy(0.4f),
+        shape = RoundedCornerShape(10.dp),
         modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             verticalAlignment = Alignment.CenterVertically,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
         ) {
-            Icon(Icons.Filled.Flight, null, tint = Cyan.copy(0.7f), modifier = Modifier.size(16.dp))
-            Spacer(Modifier.width(8.dp))
+            Icon(Icons.Filled.Flight, null, tint = Cyan.copy(0.6f), modifier = Modifier.size(18.dp))
+            Spacer(Modifier.width(10.dp))
             Text("S/N: ", color = TextGray, fontSize = 12.sp)
             Text(serial, color = TextWhite, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.weight(1f))
-            IconButton(onClick = onRefresh, modifier = Modifier.size(20.dp)) {
-                Icon(Icons.Default.Refresh, "Refresh", tint = TextGray, modifier = Modifier.size(14.dp))
+            IconButton(onClick = onRefresh, modifier = Modifier.size(24.dp)) {
+                Icon(Icons.Default.Refresh, "Refresh", tint = TextGray, modifier = Modifier.size(16.dp))
             }
         }
     }
@@ -757,11 +758,18 @@ private fun SerialRow(serial: String, onRefresh: () -> Unit) {
 @Composable
 private fun InfoRow(label: String, value: String, valueColor: Color = TextWhite) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
-        horizontalArrangement = Arrangement.SpaceBetween
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
     ) {
         Text(label, color = TextGray, fontSize = 13.sp)
-        Text(value, color = valueColor, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+        Text(
+            value,
+            color = valueColor,
+            fontSize = 13.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1
+        )
     }
 }
 
@@ -783,7 +791,6 @@ private fun StatusDot(color: Color) {
         modifier = Modifier
             .size(10.dp)
             .background(color.copy(alpha), CircleShape)
-            .drawBehind { drawCircle(color.copy(0.3f), radius = 16f) }
     )
 }
 
@@ -793,20 +800,15 @@ private fun GlowCard(content: @Composable () -> Unit) {
         color = CardBg,
         shape = RoundedCornerShape(16.dp),
         border = BorderStroke(1.dp, CardBorder),
-        modifier = Modifier
-            .fillMaxWidth()
-            .drawBehind {
-                drawRoundRect(
-                    Brush.verticalGradient(
-                        listOf(Cyan.copy(0.04f), Color.Transparent),
-                        startY = 0f,
-                        endY = size.height * 0.3f
-                    ),
-                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(16.dp.toPx())
-                )
-            }
+        modifier = Modifier.fillMaxWidth()
     ) {
-        Box(Modifier.padding(20.dp)) { content() }
+        Column(
+            modifier = Modifier
+                .padding(20.dp)
+                .fillMaxWidth()
+        ) {
+            content()
+        }
     }
 }
 
@@ -818,14 +820,8 @@ private fun GlowButton(
     enabled: Boolean = true,
     onClick: () -> Unit
 ) {
-    val pressScale = remember { Animatable(1f) }
-
     Button(
-        onClick = {
-            if (enabled) {
-                onClick()
-            }
-        },
+        onClick = onClick,
         enabled = enabled,
         colors = ButtonDefaults.buttonColors(
             containerColor = if (filled) color else Color.Transparent,
@@ -834,28 +830,21 @@ private fun GlowButton(
             disabledContentColor = color.copy(0.4f)
         ),
         shape = RoundedCornerShape(12.dp),
-        border = if (!filled && enabled) BorderStroke(1.5.dp, color.copy(0.6f))
-                 else if (filled && enabled) BorderStroke(1.dp, color.copy(0.3f))
-                 else null,
+        border = when {
+            !filled && enabled -> BorderStroke(1.5.dp, color.copy(0.6f))
+            filled && enabled -> BorderStroke(1.dp, color.copy(0.3f))
+            else -> null
+        },
         modifier = Modifier
             .fillMaxWidth()
             .height(52.dp)
-            .scale(pressScale.value)
-            .drawBehind {
-                if (enabled && filled) {
-                    drawRoundRect(
-                        color.copy(0.1f),
-                        cornerRadius = androidx.compose.ui.geometry.CornerRadius(12.dp.toPx())
-                    )
-                }
-            }
     ) {
         Text(text, fontWeight = FontWeight.Bold, fontSize = 15.sp, letterSpacing = 0.5.sp)
     }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
-// Animated signal wave icon
+// Signal wave icon
 // ═══════════════════════════════════════════════════════════════════════
 
 @Composable
@@ -871,10 +860,9 @@ private fun SignalWaveIcon(active: Boolean, color: Color, modifier: Modifier = M
         val w = size.width
         val h = size.height
         val centerY = h / 2
-        val amplitude = if (active) h * 0.25f else h * 0.1f
-        val lineColor = if (active) color else color.copy(0.4f)
+        val amplitude = if (active) h * 0.25f else h * 0.08f
+        val lineColor = if (active) color else color.copy(0.35f)
 
-        // Draw sine wave
         val path = androidx.compose.ui.graphics.Path()
         for (x in 0..w.toInt() step 2) {
             val y = centerY + amplitude * sin((x / w).toDouble() * 2.0 * PI + phase.toDouble()).toFloat()
@@ -902,69 +890,49 @@ private fun BottomNavBar(
     )
 
     Surface(
-        color = BgDark.copy(0.97f),
+        color = BgDark.copy(0.98f),
+        shadowElevation = 8.dp,
         modifier = modifier.fillMaxWidth()
     ) {
-        Box(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(68.dp)
-                .drawBehind {
-                    drawLine(
-                        CardBorder,
-                        start = Offset(0f, 0f),
-                        end = Offset(size.width, 0f),
-                        strokeWidth = 1.dp.toPx()
-                    )
-                }
+                .height(BottomNavHeight)
+                .padding(horizontal = 16.dp),
+            horizontalArrangement = Arrangement.SpaceEvenly,
+            verticalAlignment = Alignment.CenterVertically
         ) {
-            Row(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 16.dp),
-                horizontalArrangement = Arrangement.SpaceEvenly,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                tabs.forEachIndexed { index, (label, icon, color) ->
-                    val selected = currentPage == index
+            tabs.forEachIndexed { index, (label, icon, color) ->
+                val selected = currentPage == index
 
-                    // Indicator line above selected tab
-                    val indicatorProgress = remember { Animatable(if (selected) 1f else 0f) }
-                    LaunchedEffect(selected) {
-                        indicatorProgress.animateTo(if (selected) 1f else 0f, tween(250))
-                    }
-
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    modifier = Modifier
+                        .weight(1f)
+                        .clickable { onPageSelected(index) }
+                        .padding(vertical = 8.dp)
+                ) {
+                    Icon(
+                        icon, label,
+                        tint = if (selected) color else TextDim,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        label,
+                        color = if (selected) color else TextDim,
+                        fontSize = 10.sp,
+                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+                        maxLines = 1
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .clickable { onPageSelected(index) }
-                            .padding(vertical = 10.dp)
-                    ) {
-                        Box(contentAlignment = Alignment.BottomCenter) {
-                            Icon(
-                                icon, label,
-                                tint = if (selected) color else TextDim,
-                                modifier = Modifier.size(24.dp)
-                            )
-                        }
-                        Spacer(Modifier.height(4.dp))
-                        Text(
-                            label,
-                            color = if (selected) color else TextDim,
-                            fontSize = 10.sp,
-                            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal
-                        )
-                        Spacer(Modifier.height(3.dp))
-                        // Indicator bar
-                        Box(
-                            modifier = Modifier
-                                .width(24.dp)
-                                .height(3.dp)
-                                .clip(RoundedCornerShape(2.dp))
-                                .background(if (selected) color else Color.Transparent)
-                        )
-                    }
+                            .width(24.dp)
+                            .height(3.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(if (selected) color else Color.Transparent)
+                    )
                 }
             }
         }
