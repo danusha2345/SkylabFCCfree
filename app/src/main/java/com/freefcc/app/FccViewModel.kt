@@ -108,6 +108,10 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             }
 
             log("Auto-FCC: controller connected")
+            val detectedPort = transport.getDetectedPort()
+            if (detectedPort > 0) {
+                log("DUMPL port detected: $detectedPort")
+            }
             val serial = transport.probeSerial(1500)
             update {
                 copy(
@@ -163,8 +167,8 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     // --- Connection ---
 
     /**
-     * Checks if the DUMPL proxy at 127.0.0.1:40009 is reachable.
-     * If connected, probes for the aircraft serial number.
+     * Connects to the DUMPL proxy, auto-detecting the correct port.
+     * Probes for the aircraft serial number after connecting.
      */
     fun connect() {
         update { copy(status = "connecting", message = "Connecting to controller...") }
@@ -173,6 +177,10 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         runOnIO {
             if (transport.isReachable()) {
                 log("Controller connected")
+                val detectedPort = transport.getDetectedPort()
+                if (detectedPort > 0) {
+                    log("DUMPL port detected: $detectedPort")
+                }
                 val serial = transport.probeSerial(1500)
                 update {
                     copy(

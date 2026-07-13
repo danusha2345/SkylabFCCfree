@@ -168,6 +168,9 @@ class DumplTransport {
      */
     private var discoveredPort: Int = -1
 
+    /** Returns the port that was detected, or -1 if none found yet. */
+    fun getDetectedPort(): Int = discoveredPort
+
     private fun findWorkingPort(): Int {
         if (discoveredPort > 0 && isReachable(discoveredPort)) return discoveredPort
         for (p in SCAN_PORTS) {
