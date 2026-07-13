@@ -12,6 +12,11 @@
   "frames": [
     { "s": 16, "i": 88,  "d": 18,  "p": "030100",             "note": "AUTOTEST set: enter service mode (dst=SVO)" },
     { "s": 6,  "i": 114, "d": 6,   "p": "00000000000100",     "note": "RADIO set region param to FCC (01) (dst=REMOTE_RADIO)" },
+    { "s": 0,  "i": 1,   "d": 40,  "p": "",                   "note": "SET trigger to receiver 0x28 (subsystem trigger)" },
+    { "s": 0,  "i": 1,   "d": 72,  "p": "",                   "note": "SET trigger to receiver 0x48 (subsystem trigger)" },
+    { "s": 0,  "i": 1,   "d": 1,   "p": "",                   "note": "SET trigger to receiver 0x01 (flight controller trigger)" },
+    { "s": 0,  "i": 1,   "d": 85,  "p": "",                   "note": "SET trigger to receiver 0x55 (subsystem trigger)" },
+    { "s": 0,  "i": 1,   "d": 3,   "p": "",                   "note": "SET trigger to receiver 0x03 (flight controller trigger)" },
     { "s": 3,  "i": 223, "d": 3,   "p": "01000000",             "note": "FLYCONTROLLER Assistant Unlock (cmd 0xDF, lock_state=1 uint32) — required before param writes" },
     { "s": 1,  "i": 17,  "d": 3,   "p": "d100000000",           "note": "FLYCONTROLLER C0 Height Limit Unlock (sub_cmd 0xD1, realname check protocol — unlocks 120m CE cap)" },
     { "s": 4,  "i": 51,  "d": 3,   "p": "0001010000ffff2000",   "note": "FLYCONTROLLER SET parameter (cmdset=4 cmdid=0x33) — altitude unlock 0xFFFF + FCC flag 0x20" },
