@@ -11,3 +11,6 @@ app/build/
 gradle/.gradle/
 *.idsig
 .kotlin/
+
+REMOTE_ID_INTERNAL.md
+
