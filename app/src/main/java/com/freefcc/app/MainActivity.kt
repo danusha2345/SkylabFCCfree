@@ -187,7 +187,7 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                     GlowButton("Connect", Cyan) { viewModel.connect() }
                 }
                 state.isFccEnabled -> {
-                    BodyText("FCC mode is active.", Green)
+                    BodyText("FCC mode + altitude unlock active.", Green)
                     Spacer(Modifier.height(20.dp))
                     GlowButton("Stop FCC Mode", Red) { viewModel.disableFcc() }
                     Spacer(Modifier.height(12.dp))
@@ -201,7 +201,7 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                         BodyText("Tap the button below to enable FCC mode.")
                         Spacer(Modifier.height(20.dp))
                     }
-                    GlowButton("Enable FCC Mode", Cyan) { viewModel.enableFcc() }
+                    GlowButton("Enable FCC + Altitude", Cyan) { viewModel.enableFcc() }
                 }
             }
 
@@ -625,7 +625,8 @@ private fun SupportPage() {
             Text("About", color = TextWhite, fontSize = 16.sp, fontWeight = FontWeight.Bold)
             Spacer(Modifier.height(12.dp))
             BodyText(
-                "FreeFCC sends DUMPL commands to your DJI controller to unlock FCC mode and enable 4G. " +
+                "FreeFCC sends DUMPL commands to your DJI controller to unlock FCC mode, remove altitude limits (up to 3000m), " +
+                "remove distance limits, disable NFZ geofencing, and enable 4G. " +
                 "It works fully offline with no server or license. " +
                 "The protocol is publicly documented in the dji-firmware-tools project.",
                 TextGray
@@ -633,7 +634,7 @@ private fun SupportPage() {
             Spacer(Modifier.height(16.dp))
             DividerLine()
             Spacer(Modifier.height(16.dp))
-            InfoRow("Version", "1.3")
+            InfoRow("Version", "1.4")
             Spacer(Modifier.height(12.dp))
             InfoRow("License", "AGPL-3.0")
             Spacer(Modifier.height(12.dp))
@@ -686,7 +687,7 @@ private fun AppHeader(model: String) {
         }
         Spacer(Modifier.height(6.dp))
         Text(
-            if (model.isNotEmpty()) "v1.3 · $model" else "v1.3",
+            if (model.isNotEmpty()) "v1.4 · $model" else "v1.4",
             color = TextDim,
             fontSize = 11.sp,
             fontWeight = FontWeight.Medium
@@ -795,14 +796,14 @@ private fun ModeBadge(state: AppState) {
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                if (active) "FCC" else "CE",
+                if (active) "FCC + Altitude Unlock" else "CE",
                 color = if (active) Green else TextWhite,
                 fontSize = 30.sp,
                 fontWeight = FontWeight.Black
             )
             Spacer(Modifier.height(4.dp))
             Text(
-                if (active) "High-power region active" else "Default region",
+                if (active) "High-power + 3000m ceiling + no NFZ" else "Default region",
                 color = if (active) Green.copy(0.7f) else TextGray,
                 fontSize = 12.sp
             )
