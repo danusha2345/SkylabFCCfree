@@ -31,6 +31,7 @@ A free and open-source Android app that unlocks FCC mode, enables 4G transmissio
 | Feature | Description |
 |---------|-------------|
 | **FCC Unlock** | Switches the radio from CE to FCC mode for higher power and more channels |
+| **Altitude Limit Removed** | Raises max flight altitude from 120m (CE limit) to 500m (FCC limit) |
 | **4G Activation** | Enables 4G transmission on the aircraft (serial read at runtime) |
 | **LED Control** | Turn aircraft arm LEDs on or off (requires DJI Fly running with aircraft connected) |
 | **Device Info** | Queries the controller for hardware and firmware version |
@@ -166,6 +167,8 @@ Each command is a small binary packet with a magic byte (`0x55`), a header with 
 ### FCC Profile
 
 21 frames sent in 2 rounds with 150ms between each frame. The sequence enters service mode, sets the radio region to FCC, writes channel groups and power limits, commits the change, and exits service mode. The same 21 frames work on every DJI aircraft model I tested.
+
+One of the frames (frame 2) writes to the flight controller parameter `g_config.flying_limit.max_height_0` and sets it to 500 meters. This is the FCC regulatory altitude ceiling, which replaces the 120m CE limit. So enabling FCC mode also raises the altitude limit from 120m to 500m automatically.
 
 ### 4G Profile
 
