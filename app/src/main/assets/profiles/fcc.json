@@ -41,6 +41,8 @@
     { "s": 3,  "i": 249, "d": 3,   "p": "cc56196700803b45",   "note": "FLYCONTROLLER write fly_limit limit_height_rel = 3000.0 (float, alt namespace)" },
     { "s": 6,  "i": 119, "d": 6,   "p": "010100ffff200000",   "note": "RADIO keepalive payload — altitude unlock 0xFFFF + FCC flag 0x20 (cmdid=0x77)" },
     { "s": 6,  "i": 119, "d": 20,  "p": "010100ffff200000",   "note": "RADIO keepalive payload — to dst 0x14 (cmdid=0x77)" },
+    { "s": 4,  "i": 51,  "d": 3,   "p": "010100ffff200000004c452d35", "note": "SET parameter with LE-5 regulatory class — tells drone it's NOT C0 class (unlocks 120m cap)" },
+    { "s": 12, "i": 16,  "d": 3,   "p": "17e3f6cdd614f2ffd50000000028230000000000005c4e3a380000000006242d2dd7dceceb77751802000000001902e6e2fdd9d1b500800081000000005155595d", "note": "Large config frame (cmdset=0x0C cmdid=0x10) — embedded sub-commands + altitude data" },
     { "s": 0,  "i": 0,   "d": 31,  "p": "000001",             "note": "GENERAL activate change (dst=WM330_OR_WM220)" },
     { "s": 0,  "i": 50,  "d": 111, "p": "3131000000",         "note": "GENERAL set country code '11' (dst=LB_68013_SKY idx 3)" },
     { "s": 3,  "i": 175, "d": 3,   "p": "032400000000000000", "note": "FLYCONTROLLER write param (cmd 0xAF)" },

@@ -19,6 +19,7 @@
     { "s": 4,  "i": 51,  "d": 3,   "p": "0001010000ffff2000", "note": "SET parameter — altitude unlock 0xFFFF + FCC flag 0x20" },
     { "s": 6,  "i": 119, "d": 6,   "p": "010100ffff200000",   "note": "RADIO keepalive — altitude unlock 0xFFFF + FCC flag 0x20 (cmdid=0x77)" },
     { "s": 6,  "i": 119, "d": 20,  "p": "010100ffff200000",   "note": "RADIO keepalive — to dst 0x14 (cmdid=0x77)" },
+    { "s": 4,  "i": 51,  "d": 3,   "p": "010100ffff200000004c452d35", "note": "SET parameter with LE-5 regulatory class — NOT C0 class (unlocks 120m cap)" },
     { "s": 6,  "i": 114, "d": 6,   "p": "000000000001ff",     "note": "RADIO commit region change" }
   ]
 }
