@@ -65,7 +65,7 @@ data class AppState(
 class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     companion object {
-        const val APP_VERSION = "1.4.4"
+        const val APP_VERSION = "1.4.5"
     }
 
     private val _state = MutableStateFlow(AppState())
