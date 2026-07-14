@@ -6,7 +6,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.sync.Mutex
 
 /**
- * Process-wide serialization for every controller-/aircraft-facing DUMPL write.
+ * Process-wide serialization for every controller-/aircraft-facing DUML write.
  *
  * [FccViewModel] (UI-triggered operations) and [FccKeepaliveService] (background
  * re-apply loop) are separate Android components with no shared instance, so the

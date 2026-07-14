@@ -48,6 +48,7 @@ jobs:
 
     env:
       SIGNING_STORE_FILE: ${{ runner.temp }}/release.jks
+      SIGNING_KEYSTORE_B64: ${{ secrets.SIGNING_KEYSTORE_B64 }}
       SIGNING_STORE_PASSWORD: ${{ secrets.SIGNING_STORE_PASSWORD }}
       SIGNING_KEY_ALIAS: ${{ secrets.SIGNING_KEY_ALIAS }}
       SIGNING_KEY_PASSWORD: ${{ secrets.SIGNING_KEY_PASSWORD }}
@@ -67,7 +68,7 @@ jobs:
       - name: Check signing secrets are present
         id: secrets
         run: |
-          if [ -z "$SIGNING_STORE_PASSWORD" ] || [ -z "$SIGNING_KEY_ALIAS" ] || [ -z "$SIGNING_KEY_PASSWORD" ]; then
+          if [ -z "$SIGNING_KEYSTORE_B64" ] || [ -z "$SIGNING_STORE_PASSWORD" ] || [ -z "$SIGNING_KEY_ALIAS" ] || [ -z "$SIGNING_KEY_PASSWORD" ]; then
             echo "have_secrets=false" >> "$GITHUB_OUTPUT"
             echo "Warning: signing secrets not configured — skipping signed build." >&2
           else
@@ -76,7 +77,7 @@ jobs:
 
       - name: Decode keystore
         if: steps.secrets.outputs.have_secrets == 'true'
-        run: echo "${{ secrets.SIGNING_KEYSTORE_B64 }}" | base64 --decode > "$SIGNING_STORE_FILE"
+        run: echo "$SIGNING_KEYSTORE_B64" | base64 --decode > "$SIGNING_STORE_FILE"
 
       - name: Assemble signed release
         if: steps.secrets.outputs.have_secrets == 'true'

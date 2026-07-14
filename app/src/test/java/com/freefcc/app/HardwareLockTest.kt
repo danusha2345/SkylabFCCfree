@@ -9,7 +9,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * Covers HardwareLock's mutual exclusion — the guarantee S-006 relies on to stop
- * FccKeepaliveService writing DUMPL frames while FccViewModel holds the lock (or
+ * FccKeepaliveService writing DUML frames while FccViewModel holds the lock (or
  * vice versa). The held lock is only released after the concurrent tryBegin()
  * attempt has actually run, via CountDownLatch, so "exactly one wins" can't pass
  * by accident from a lock that was already free by the time the second call ran.
