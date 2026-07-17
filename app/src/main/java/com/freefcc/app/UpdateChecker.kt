@@ -1,6 +1,7 @@
 package com.freefcc.app
 
 import android.content.Context
+import android.util.Log
 import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
@@ -105,7 +106,8 @@ object UpdateChecker {
                 publishedAt = publishedAt,
                 sha256 = sha256
             )
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w("FreeFCC-Update", "fetchLatest failed: ${e.javaClass.simpleName}: ${e.message}")
             null
         } finally {
             conn?.disconnect()
@@ -162,7 +164,9 @@ object UpdateChecker {
             }
 
             outputFile
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            Log.w("FreeFCC-Update", "downloadApk failed: ${e.javaClass.simpleName}: ${e.message}")
+            try { File(context.cacheDir, "updates/freefcc_update.apk").delete() } catch (_: Exception) {}
             null
         } finally {
             conn?.disconnect()

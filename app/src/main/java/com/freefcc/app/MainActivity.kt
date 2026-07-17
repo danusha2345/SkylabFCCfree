@@ -172,6 +172,38 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
         AppHeader(state.controllerModel)
         Spacer(Modifier.height(28.dp))
         ConnectionPill(state)
+
+        // Update-available banner — shows on the FCC page so the user
+        // doesn't have to manually check the Update tab.
+        if (state.updateAvailable && state.updateInfo != null && !state.isCheckingUpdate) {
+            Spacer(Modifier.height(16.dp))
+            GlowCard {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            "Update available — v${state.updateInfo!!.version}",
+                            color = Green, fontSize = 14.sp, fontWeight = FontWeight.SemiBold
+                        )
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            "Tap Update to install",
+                            color = TextDim, fontSize = 12.sp
+                        )
+                    }
+                    Icon(
+                        Icons.Filled.NewReleases,
+                        contentDescription = "Update available",
+                        tint = Green,
+                        modifier = Modifier.size(24.dp)
+                    )
+                }
+            }
+        }
+
         Spacer(Modifier.height(28.dp))
 
         GlowCard {
@@ -586,7 +618,7 @@ private fun UpdatePage(state: AppState, viewModel: FccViewModel) {
                         color = TextDim, fontSize = 12.sp, lineHeight = 17.sp
                     )
                     Spacer(Modifier.height(20.dp))
-                    GlowButton("Retry", Cyan) { viewModel.checkForUpdates() }
+                    GlowButton("Retry", Cyan) { viewModel.checkForUpdates(force = true) }
                 }
             }
             return@Column

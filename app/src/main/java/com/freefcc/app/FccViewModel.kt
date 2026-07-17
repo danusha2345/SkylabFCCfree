@@ -65,7 +65,7 @@ data class AppState(
 class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     companion object {
-        const val APP_VERSION = "1.4.8"
+        const val APP_VERSION = "1.4.9"
 
         /**
          * Aircraft model codes known to support DJI Cellular Dongle 2 / 4G.
@@ -706,25 +706,30 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     // --- Updates ---
 
-    fun checkForUpdates() {
+    fun checkForUpdates(force: Boolean = false) {
         // Rate-limit: don't hit GitHub API more than once per hour.
         // Unauthenticated limit is 60 requests/hour per IP.
+        // The timestamp is saved ONLY on success — a failed check does NOT
+        // consume the rate-limit window, so the user can retry immediately.
         val lastCheck = prefs.getLong("last_update_check", 0)
         val now = System.currentTimeMillis()
-        if (now - lastCheck < 60 * 60 * 1000 && _state.value.updateChecked) {
+        if (!force && now - lastCheck < 60 * 60 * 1000 && _state.value.updateChecked && _state.value.updateInfo != null) {
             return
         }
-        prefs.edit().putLong("last_update_check", now).apply()
         update { copy(isCheckingUpdate = true) }
         log("Checking for updates...")
 
         runOnIO {
             val info = UpdateChecker.fetchLatest()
             if (info == null) {
+                // Don't save lastCheck on failure — let the user retry immediately.
                 update { copy(isCheckingUpdate = false, updateChecked = true) }
-                log("Update check failed — no internet or GitHub unreachable")
+                log("Update check failed — no internet or GitHub unreachable. Tap Retry to try again.")
                 return@runOnIO
             }
+
+            // Save the timestamp only on success.
+            prefs.edit().putLong("last_update_check", System.currentTimeMillis()).apply()
 
             val isNewer = info.isNewerThan(APP_VERSION)
             update {
@@ -758,7 +763,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
             if (file == null) {
                 update { copy(isDownloadingUpdate = false, updateDownloadProgress = 0f) }
-                log("Update download failed — check your internet connection")
+                log("Update download failed — check your Wi-Fi connection. The RC2 needs Wi-Fi to download updates.")
                 return@runOnIO
             }
 
@@ -782,29 +787,86 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         update { copy(isBusy = true, message = "Preparing install...") }
         runOnIO {
             try {
-                // Use the cached APK directly via FileProvider — no external storage
-                // copy needed (scoped storage on Android 10+ blocks writing to the
-                // root of external storage without MANAGE_EXTERNAL_STORAGE, which
-                // we don't have). The cache-path "updates/" in file_paths.xml
-                // covers cacheDir/updates/ where the APK already lives.
+                val pm = app.packageManager
+
+                // Check 1: does this app have permission to install packages?
+                // On Android 8+ the user must grant "Install unknown apps"
+                // per-app. The RC2 may hide this Settings page — if so, the
+                // user needs to install via SD card + FileManager instead.
+                if (android.os.Build.VERSION.SDK_INT >= 26 && !pm.canRequestPackageInstalls()) {
+                    log("Install blocked — FreeFCC needs 'Install unknown apps' permission.")
+                    log("Opening Settings to grant it. If the Settings page doesn't appear,")
+                    log("install the update via SD card + FileManager instead.")
+                    val settingsIntent = android.content.Intent(
+                        android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES
+                    ).apply {
+                        data = android.net.Uri.parse("package:${app.packageName}")
+                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    try {
+                        app.startActivity(settingsIntent)
+                    } catch (_: Exception) {
+                        log("Settings page unavailable — install via SD card + FileManager.")
+                    }
+                    update { copy(isBusy = false, message = "Grant install permission in Settings, then tap Install again. Or install via SD card.") }
+                    return@runOnIO
+                }
+
+                // Copy the APK to a location the installer can access.
+                // The RC2's package installer may not handle content:// URIs
+                // from app-private cacheDir (a known Android issue). Copying
+                // to the app-specific external directory is more reliable.
+                val extDir = java.io.File(app.getExternalFilesDir(null), "updates").apply { mkdirs() }
+                val extFile = java.io.File(extDir, "freefcc_update.apk")
+                try {
+                    file.copyTo(extFile, overwrite = true)
+                } catch (e: Exception) {
+                    log("Could not copy APK to external storage: ${e.message}")
+                    // Fall back to the cache file
+                }
+                val installFile = if (extFile.exists()) extFile else file
+
                 val uri = androidx.core.content.FileProvider.getUriForFile(
-                    app, "${app.packageName}.fileprovider", file
+                    app, "${app.packageName}.fileprovider", installFile
                 )
                 val viewIntent = android.content.Intent(android.content.Intent.ACTION_VIEW).apply {
                     setDataAndType(uri, "application/vnd.android.package-archive")
                     flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
                             android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
                 }
+
+                // Check 2: does a package installer actually exist?
+                if (viewIntent.resolveActivity(pm) == null) {
+                    log("No package installer found. Sideload 01_PackageInstaller from the SD card, reboot, then retry.")
+                    update { copy(isBusy = false, message = "No installer. Sideload 01_PackageInstaller from SD card, reboot, retry.") }
+                    return@runOnIO
+                }
+
+                // Grant URI permission to all resolved installer activities —
+                // some OEM forks don't honor FLAG_GRANT_READ_URI_PERMISSION
+                // alone for the staging step.
+                val targets = pm.queryIntentActivities(viewIntent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+                for (info in targets) {
+                    app.grantUriPermission(
+                        info.activityInfo.packageName, uri,
+                        android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION
+                    )
+                }
+
                 try {
                     app.startActivity(viewIntent)
                     log("Launching installer...")
-                } catch (_: Exception) {
-                    log("Installer unavailable — try installing via adb or a file manager")
+                    update { copy(isBusy = false, message = "Installer launched — follow the on-screen prompts.") }
+                } catch (e: android.content.ActivityNotFoundException) {
+                    log("No package installer on this device. Install via SD card + FileManager.")
+                    update { copy(isBusy = false, message = "No installer. Install via SD card + FileManager.") }
+                } catch (e: Exception) {
+                    log("Install failed: ${e.message}")
+                    update { copy(isBusy = false, message = "Install failed: ${e.message}") }
                 }
             } catch (e: Exception) {
-                log("Install failed: ${e.message}")
-            } finally {
-                update { copy(isBusy = false) }
+                log("Install error: ${e.message}")
+                update { copy(isBusy = false, message = "Install error: ${e.message}") }
             }
         }
     }
