@@ -9,9 +9,8 @@ import org.junit.Test
  * plan review: valid response, CRC-8, CRC-16, length, sequence, routing, command
  * set/ID, and the response bit — each isolated so only that one check fails.
  *
- * Wire layout (matches the DJI DUML proxy parser):
- *   [4] sender, [5] cmdType, [6-7] seq, [8] dst, [9] cmdSet, [10] cmdId
- * A response reverses [4]<->[8] (sender<->receiver) and sets bit 7 of [5].
+ * Wire layout: [4] sender, [5] dst, [6-7] seq, [8] cmdType, [9] cmdSet, [10] cmdId
+ * A response reverses [4]<->[5] (sender<->receiver) and sets bit 7 of [8].
  */
 class DumlResponseValidationTest {
 
@@ -31,10 +30,10 @@ class DumlResponseValidationTest {
         out[2] = (((totalLength shr 8) and 0x03) or 0x04).toByte()
         out[3] = DumlBuilder.crc8(out, 0, 3).toByte()
         out[4] = sender.toByte()
-        out[5] = cmdType.toByte()
+        out[5] = dst.toByte()
         out[6] = (seq and 0xFF).toByte()
         out[7] = ((seq shr 8) and 0xFF).toByte()
-        out[8] = dst.toByte()
+        out[8] = cmdType.toByte()
         out[9] = cmdSet.toByte()
         out[10] = cmdId.toByte()
         System.arraycopy(payload, 0, out, 11, payload.size)

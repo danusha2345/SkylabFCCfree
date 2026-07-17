@@ -39,18 +39,15 @@ data class DumlFrame(
  *   Byte  1-2     Length (bits 0-9) + version (bits 10-15), version is always 1
  *   Byte  3       CRC-8 of bytes 0-2 (polynomial 0x8C reflected, init 0x77)
  *   Byte  4       Sender (type + index)
- *   Byte  5       Command type (packet_type + ack_type + encrypt_type)
+ *   Byte  5       Receiver (type + index)
  *   Byte  6-7     Sequence number (LE)
- *   Byte  8       Receiver / destination (type + index)
+ *   Byte  8       Command type (packet_type + ack_type + encrypt_type)
  *   Byte  9       Command set
  *   Byte  10      Command ID
  *   Byte  11..N   Payload
  *   Byte  N+1..N+2  CRC-16 of bytes 0..N (polynomial 0x8408 reflected of 0x1021, init 0x3692)
  *
  * Reference: https://github.com/o-gs/dji-firmware-tools/blob/master/comm_dat2pcap.py
- *            and the DUML command envelope documentation in the dji-firmware-tools
- *            project. The header layout (sender, cmdType, seq, dst, cmdSet, cmdId)
- *            matches the DJI proxy's parser exactly.
  */
 class DumlBuilder {
 
@@ -77,11 +74,11 @@ class DumlBuilder {
 
         // Routing + command type
         out[4] = frame.sender.toByte()
-        out[5] = frame.cmdType.toByte()
+        out[5] = frame.dst.toByte()
         val seq = sequenceNumber.getAndIncrement() and 0xFFFF
         out[6] = (seq and 0xFF).toByte()
         out[7] = ((seq shr 8) and 0xFF).toByte()
-        out[8] = frame.dst.toByte()
+        out[8] = frame.cmdType.toByte()
         out[9] = frame.cmdSet.toByte()
         out[10] = frame.cmdId.toByte()
 
@@ -163,10 +160,10 @@ class DumlBuilder {
          * routing, and matching command set/ID. Pure function, no I/O — every check
          * runs against the two byte arrays given.
          *
-         * Wire layout used here (matches the DUML proxy parser):
-         *   [4] sender, [5] cmdType, [6-7] seq, [8] dst, [9] cmdSet, [10] cmdId
-         * A response echoes [4]<->[8] (sender<->receiver reversed) and keeps [5] the
-         * same with bit 7 set (response flag).
+         * Wire layout used here:
+         *   [4] sender, [5] dst, [6-7] seq, [8] cmdType, [9] cmdSet, [10] cmdId
+         * A response echoes [4]<->[5] (sender<->receiver reversed) and sets
+         * bit 7 of [8] (cmdType response flag).
          *
          * @return the response payload on success, or null on any mismatch
          */
@@ -187,11 +184,11 @@ class DumlBuilder {
 
             if (request.size < 11) return null
 
-            val cmdType = response[5].toInt() and 0xFF
+            val cmdType = response[8].toInt() and 0xFF
             if ((cmdType and 0x80) == 0) return null // response bit not set
 
             if (response[6] != request[6] || response[7] != request[7]) return null // sequence
-            if (response[4] != request[8] || response[8] != request[4]) return null // reversed sender<->dst
+            if (response[4] != request[5] || response[5] != request[4]) return null // reversed routing
             if (response[9] != request[9] || response[10] != request[10]) return null // cmd set/id
 
             val payloadLength = totalLength - 13
