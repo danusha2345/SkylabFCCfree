@@ -65,7 +65,7 @@ data class AppState(
 class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     companion object {
-        const val APP_VERSION = "1.5.1"
+        const val APP_VERSION = "1.5.2"
 
         /**
          * Aircraft model codes known to support DJI Cellular Dongle 2 / 4G.
@@ -750,9 +750,40 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private var downloadedApk: java.io.File? = null
 
+    /**
+     * Checks if the app can install packages. If not, opens the system
+     * Settings page for "Install unknown apps" so the user can grant it.
+     * Returns true if permission is already granted (proceed with download),
+     * false if we opened Settings (user needs to grant, then tap Download again).
+     */
+    fun ensureInstallPermission(): Boolean {
+        val pm = app.packageManager
+        if (android.os.Build.VERSION.SDK_INT >= 26 && !pm.canRequestPackageInstalls()) {
+            log("Install permission needed — opening Settings. Grant 'Install unknown apps' for FreeFCC, then tap Download again.")
+            val settingsIntent = android.content.Intent(
+                android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES
+            ).apply {
+                data = android.net.Uri.parse("package:${app.packageName}")
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            try {
+                app.startActivity(settingsIntent)
+            } catch (_: Exception) {
+                log("Settings page not available — you may need to install updates via SD card + FileManager.")
+            }
+            return false
+        }
+        return true
+    }
+
     fun downloadUpdate() {
         val info = _state.value.updateInfo ?: return
         if (_state.value.isDownloadingUpdate) return
+        // Check install permission BEFORE downloading so the user can grant
+        // it first, then come back and tap Download again.
+        if (!ensureInstallPermission()) {
+            return
+        }
         update { copy(isDownloadingUpdate = true, updateDownloadProgress = 0f, isUpdateDownloaded = false) }
         log("Downloading update v${info.version}...")
 
