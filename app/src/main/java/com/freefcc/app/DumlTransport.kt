@@ -423,16 +423,14 @@ class DumlTransport {
     }
 
     /**
-     * Fast pre-check for the 4G dongle presence without sending 128 frames.
+     * Read-only pre-check for the local 4G command endpoint.
      *
-     * Tries to open the abstract-namespace Unix domain socket the 4G module
-     * listens on. If connect() throws immediately (ENOENT/ENOCONN), the dongle
-     * is not attached and 4G activation cannot succeed. This avoids the
-     * 128-frame × 10ms failure loop and gives the user a clear, instant message.
-     *
-     * @return true if the 4G socket is connectable, false if no 4G dongle
+     * A successful connection only proves that the controller's DUSS router
+     * currently exposes `/duss/mb/0x205`. It does not distinguish an external
+     * Cellular Dongle from an integrated eSIM module and does not prove that
+     * the 128-frame activation profile is compatible with the linked aircraft.
      */
-    fun is4gDonglePresent(): Boolean {
+    fun is4gEndpointReachable(): Boolean {
         var socket: LocalSocket? = null
         return try {
             socket = LocalSocket(LocalSocket.SOCKET_DGRAM)
@@ -482,8 +480,8 @@ class DumlTransport {
      * reuses it for every frame, matching the reference app's persistent
      * relay-session architecture. This avoids 127 redundant socket connect/
      * close syscalls (one per frame) and is the 1:1 match with the native
-     * relay send path. If the socket cannot be opened (no 4G dongle), returns
-     * false immediately — callers should pre-check with [is4gDonglePresent]
+     * relay send path. If the socket cannot be opened, returns false
+     * immediately — callers should pre-check with [is4gEndpointReachable]
      * for a better user message.
      *
      * Attempts every frame regardless of per-frame write failures, but only
@@ -517,7 +515,7 @@ class DumlTransport {
                 if (interFrameDelayMs > 0) Thread.sleep(interFrameDelayMs)
             }
         } catch (_: IOException) {
-            // Socket could not be opened (no 4G dongle) — every frame failed.
+            // Socket could not be opened — every frame failed.
             onProgress(1f)
             return false
         } finally {

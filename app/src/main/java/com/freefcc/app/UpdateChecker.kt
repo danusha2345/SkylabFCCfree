@@ -13,7 +13,7 @@ import java.security.MessageDigest
  * Checks for app updates by querying the GitHub Releases API.
  *
  * GitHub API endpoint:
- *   GET https://api.github.com/repos/doesthings/FreeFCC/releases/latest
+ *   GET https://api.github.com/repos/danusha2345/FreeFCC/releases/latest
  *
  * Returns JSON with tag_name, name, body (changelog), and assets[] (download URLs).
  *
@@ -50,9 +50,6 @@ data class UpdateInfo(
 
 object UpdateChecker {
 
-    private const val REPO = "doesthings/FreeFCC"
-    private const val API_URL = "https://api.github.com/repos/$REPO/releases/latest"
-
     /**
      * Fetches the latest release info from GitHub.
      * Returns null on any error (network, parse, etc).
@@ -60,7 +57,7 @@ object UpdateChecker {
     fun fetchLatest(): UpdateInfo? {
         var conn: HttpURLConnection? = null
         return try {
-            conn = (URL(API_URL).openConnection() as HttpURLConnection).apply {
+            conn = (URL(ProjectLinks.LATEST_RELEASE_API).openConnection() as HttpURLConnection).apply {
                 requestMethod = "GET"
                 connectTimeout = 8000
                 readTimeout = 8000

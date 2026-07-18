@@ -13,6 +13,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
+import java.util.ArrayDeque
 import java.util.Date
 import java.util.Locale
 
@@ -50,7 +51,11 @@ data class AppState(
     val updateAvailable: Boolean = false,
     val updateChecked: Boolean = false,
     // Keepalive state
-    val isKeepaliveRunning: Boolean = false
+    val isKeepaliveRunning: Boolean = false,
+    // Opt-in LAN log bridge state
+    val isLanLogStarting: Boolean = false,
+    val lanLogUrl: String = "",
+    val lanLogMessage: String = ""
 )
 
 internal data class FourGIdentity(
@@ -71,7 +76,16 @@ internal data class FourGIdentity(
 class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     companion object {
-        const val APP_VERSION = "1.5.4"
+        const val APP_VERSION = "1.5.6"
+
+        private const val MAX_LOG_ENTRIES = 50
+        private val processLogLock = Any()
+        private val processLogs = ArrayDeque<String>()
+        private val networkLogServer = NetworkLogServer(
+            logSnapshot = {
+                synchronized(processLogLock) { processLogs.toList() }
+            }
+        )
 
         private val FULL_SERIAL_PATTERN = Regex("^1581[0-9A-Z]{12,18}$")
         private val MODEL_CODE_PATTERN = Regex("^W[AM][0-9]{3}")
@@ -94,7 +108,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
          * Normalizes an identity returned by [DumlTransport.probeSerial]. A
          * full factory serial does not contain a model code, so model gating
          * is only possible for the short WA/WM form. The 4G socket check still
-         * protects the full-serial path from sending when no dongle endpoint
+         * protects the full-serial path from sending when no 4G DUSS endpoint
          * is available.
          */
         internal fun parseFourGIdentity(raw: String): FourGIdentity? {
@@ -109,9 +123,21 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
         internal fun isSupportedFourGModel(modelCode: String): Boolean =
             modelCode.lowercase(Locale.US) in MODELS_WITH_4G
+
+        private fun processLogSnapshot(): List<String> =
+            synchronized(processLogLock) { processLogs.toList() }
+
+        private fun appendProcessLog(entry: String) {
+            synchronized(processLogLock) {
+                processLogs.addLast(entry)
+                while (processLogs.size > MAX_LOG_ENTRIES) processLogs.removeFirst()
+            }
+        }
     }
 
-    private val _state = MutableStateFlow(AppState())
+    private val _state = MutableStateFlow(
+        AppState(logMessages = processLogSnapshot().asReversed())
+    )
     val state: StateFlow<AppState> = _state.asStateFlow()
 
     private val transport = DumlTransport()
@@ -146,6 +172,11 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         // correct after a process restart (e.g. low-memory kill + sticky restart).
         val keepaliveRunning = FccKeepaliveService.isRunningFlagSet(app)
         update { copy(controllerModel = model, status = "disconnected", autoFcc = autoEnabled, isKeepaliveRunning = keepaliveRunning) }
+        log("FreeFCC v$APP_VERSION started on $model")
+
+        if (prefs.getBoolean("lan_log_enabled", true)) {
+            setLanLoggingEnabled(true)
+        }
 
         if (autoEnabled) {
             log("Auto-FCC enabled — connecting and applying...")
@@ -153,6 +184,49 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         }
 
         checkForUpdates()
+    }
+
+    // --- LAN logging ---
+
+    fun setLanLoggingEnabled(enabled: Boolean) {
+        prefs.edit().putBoolean("lan_log_enabled", enabled).apply()
+        if (!enabled) {
+            networkLogServer.close()
+            update { copy(isLanLogStarting = false, lanLogUrl = "", lanLogMessage = "LAN log bridge stopped") }
+            log("LAN log bridge stopped")
+            return
+        }
+        networkLogServer.currentEndpoint()?.let { endpoint ->
+            update {
+                copy(
+                    isLanLogStarting = false,
+                    lanLogUrl = endpoint.url,
+                    lanLogMessage = "Ready on ${endpoint.address}:${endpoint.port}"
+                )
+            }
+            return
+        }
+        if (_state.value.isLanLogStarting) return
+
+        update { copy(isLanLogStarting = true, lanLogMessage = "Finding the private Wi-Fi address...") }
+        runOnIO {
+            try {
+                val endpoint = networkLogServer.start()
+                update {
+                    copy(
+                        isLanLogStarting = false,
+                        lanLogUrl = endpoint.url,
+                        lanLogMessage = "Ready on ${endpoint.address}:${endpoint.port}"
+                    )
+                }
+                log("LAN log bridge ready at ${endpoint.address}:${endpoint.port} (password hidden from log)")
+            } catch (e: Exception) {
+                networkLogServer.close()
+                val reason = e.message ?: e.javaClass.simpleName
+                update { copy(isLanLogStarting = false, lanLogUrl = "", lanLogMessage = "LAN log bridge failed: $reason") }
+                log("LAN log bridge failed: $reason")
+            }
+        }
     }
 
     // --- Auto-FCC ---
@@ -530,9 +604,9 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
      *    W[AM]xxx model identity. Both are valid probeSerial() results.
      * 2. A short model identity must be in the 4G-capable set. A full serial
      *    does not expose the model code, so it proceeds to the socket check.
-     * 3. The 4G endpoint must be present (the abstract socket must be
-     *    connectable). If `/duss/mb/0x205` does not exist, the cellular
-     *    module is not attached and no frame can succeed.
+     * 3. The controller's 4G endpoint must be present (the abstract socket
+     *    must be connectable). This does not identify external vs integrated
+     *    cellular hardware; it only proves the DUSS route is exposed.
      */
     fun send4gActivationFrames() {
         val hardwareLease = beginHardwareOp()
@@ -560,7 +634,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 val modelCode = identity.modelCode
                 if (modelCode != null && !isSupportedFourGModel(modelCode)) {
                     update {
-                        copy(is4gBusy = false, fourGMessage = "4G is not supported on $modelCode. It requires a DJI Cellular Dongle 2, which is only available on Mavic 4 Pro / Matrice / Inspire 3.")
+                        copy(is4gBusy = false, fourGMessage = "The captured 4G profile is not verified for $modelCode. Probe the endpoint and collect logs before testing activation.")
                     }
                     log("4G activation aborted — model $modelCode is not in the 4G-capable set $MODELS_WITH_4G")
                     return@runOnIO
@@ -569,12 +643,12 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     log("4G model guard: full factory S/N detected; model will be validated by endpoint availability")
                 }
 
-                // Guard 3: dongle pre-check — fast-fail if the socket does not exist.
-                if (!transport.is4gDonglePresent()) {
+                // Guard 3: endpoint pre-check — fast-fail if the DUSS route does not exist.
+                if (!transport.is4gEndpointReachable()) {
                     update {
-                        copy(is4gBusy = false, fourGMessage = "4G dongle not detected. Connect a DJI Cellular Dongle 2 to the aircraft and try again.")
+                        copy(is4gBusy = false, fourGMessage = "4G DUSS endpoint /duss/mb/0x205 is not reachable for the current link.")
                     }
-                    log("4G activation aborted — 4G socket /duss/mb/0x205 not connectable (no dongle?)")
+                    log("4G activation aborted — DUSS endpoint /duss/mb/0x205 is not connectable")
                     return@runOnIO
                 }
 
@@ -597,7 +671,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     }
                     log("4G activation: all ${profile.frames.size} frames written successfully via Unix socket")
                 } else {
-                    update { copy(is4gBusy = false, fourGMessage = "4G apply failed — is the 4G dongle connected?") }
+                    update { copy(is4gBusy = false, fourGMessage = "4G apply failed while writing to the DUSS endpoint") }
                     log("4G activation failed — at least one frame write failed on the Unix socket")
                 }
             } catch (e: Exception) {
@@ -606,6 +680,20 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             } finally {
                 hardwareLease.close()
             }
+        }
+    }
+
+    /** Checks only whether the controller exposes the local 4G DUSS endpoint. */
+    fun probe4gEndpoint() {
+        runOnIO {
+            val reachable = transport.is4gEndpointReachable()
+            val message = if (reachable) {
+                "4G endpoint reachable — hardware type and activation compatibility are still unknown"
+            } else {
+                "4G endpoint not reachable for the current aircraft/controller state"
+            }
+            update { copy(fourGMessage = message) }
+            log("4G endpoint probe: /duss/mb/0x205 ${if (reachable) "reachable" else "not reachable"}")
         }
     }
 
@@ -1060,11 +1148,13 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     private fun log(message: String) {
         val time = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
         val entry = "[$time] $message"
-        update { copy(logMessages = (listOf(entry) + logMessages).take(50)) }
+        appendProcessLog(entry)
+        update { copy(logMessages = processLogSnapshot().asReversed()) }
     }
 
     /** Launches a coroutine on Dispatchers.IO for network operations. */
     private fun runOnIO(block: suspend () -> Unit) {
         viewModelScope.launch(Dispatchers.IO) { block() }
     }
+
 }

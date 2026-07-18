@@ -95,7 +95,7 @@ class MainActivity : ComponentActivity() {
 @Composable
 private fun AppRoot(viewModel: FccViewModel) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    val pagerState = rememberPagerState(initialPage = 0) { 5 }
+    val pagerState = rememberPagerState(initialPage = 0) { 4 }
     val scope = rememberCoroutineScope()
 
     val entrance = remember { Animatable(0f) }
@@ -139,9 +139,8 @@ private fun AppRoot(viewModel: FccViewModel) {
             when (page) {
                 0 -> FccPage(state, viewModel)
                 1 -> InfoPage(state, viewModel)
-                2 -> LogPage(state)
+                2 -> LogPage(state, viewModel)
                 3 -> UpdatePage(state, viewModel)
-                4 -> SupportPage()
             }
         }
 
@@ -312,10 +311,21 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                     Spacer(Modifier.height(12.dp))
                     BodyText(
                         if (state.fourGMessage.isNotEmpty()) state.fourGMessage
-                        else "Sends 4G activation frames to the aircraft. No status is read back — check the DJI Fly app or Cellular Dongle to confirm.",
+                        else "Experimental captured 4G profile. First probe the local DUSS endpoint; endpoint availability does not prove activation compatibility.",
                         TextGray
                     )
-                    Spacer(Modifier.height(20.dp))
+                    Spacer(Modifier.height(12.dp))
+                    OutlinedButton(
+                        onClick = { viewModel.probe4gEndpoint() },
+                        enabled = !state.isHardwareBusy && !state.is4gBusy,
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = Amber)
+                    ) {
+                        Icon(Icons.Default.Search, null, modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.width(8.dp))
+                        Text("Probe 4G Endpoint")
+                    }
+                    Spacer(Modifier.height(12.dp))
 
                     if (state.is4gBusy) {
                         ProgressDisplay(state.busyProgress, "Sending 4G activation frames...")
@@ -507,7 +517,7 @@ private fun InfoPage(state: AppState, viewModel: FccViewModel) {
 // ═══════════════════════════════════════════════════════════════════════
 
 @Composable
-private fun LogPage(state: AppState) {
+private fun LogPage(state: AppState, viewModel: FccViewModel) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -519,6 +529,45 @@ private fun LogPage(state: AppState) {
         Spacer(Modifier.height(56.dp))
         PageTitle("Activity Log", Icons.Outlined.History)
         Spacer(Modifier.height(28.dp))
+
+        GlowCard {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Icon(Icons.Default.Wifi, null, tint = Cyan, modifier = Modifier.size(24.dp))
+                Spacer(Modifier.width(12.dp))
+                Column(modifier = Modifier.weight(1f)) {
+                    Text("LAN Log Bridge", color = TextWhite, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        "Auto-discovery on private Wi-Fi · fixed protected endpoint",
+                        color = TextGray,
+                        fontSize = 11.sp
+                    )
+                }
+                if (state.isLanLogStarting) {
+                    CircularProgressIndicator(color = Cyan, strokeWidth = 2.dp, modifier = Modifier.size(24.dp))
+                } else {
+                    Switch(
+                        checked = state.lanLogUrl.isNotEmpty(),
+                        onCheckedChange = viewModel::setLanLoggingEnabled
+                    )
+                }
+            }
+            if (state.lanLogMessage.isNotEmpty()) {
+                Spacer(Modifier.height(12.dp))
+                BodyText(
+                    state.lanLogMessage,
+                    if (state.lanLogMessage.contains("failed", ignoreCase = true)) Red else TextGray
+                )
+            }
+            if (state.lanLogUrl.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                BodyText("Codex can discover this controller through the UDP beacon; no link copying is needed.", TextDim)
+            }
+        }
+
+        Spacer(Modifier.height(16.dp))
 
         GlowCard {
             if (state.logMessages.isEmpty()) {
@@ -842,7 +891,7 @@ private fun SupportPage() {
         Button(
             onClick = {
                 try {
-                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/doesthings/FreeFCC")))
+                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(ProjectLinks.WEB_URL)))
                 } catch (_: Exception) {
                     // No browser installed (RC2 has no web browser)
                 }
@@ -883,7 +932,7 @@ private fun SupportPage() {
             Spacer(Modifier.height(12.dp))
             InfoRow("Protocol", "DUML")
             Spacer(Modifier.height(12.dp))
-            InfoRow("Source", "github.com/doesthings/FreeFCC")
+            InfoRow("Source", "github.com/${ProjectLinks.REPOSITORY}")
             Spacer(Modifier.height(16.dp))
             DividerLine()
             Spacer(Modifier.height(16.dp))
@@ -1273,8 +1322,7 @@ private fun BottomNavBar(
         Triple("FCC", Icons.Filled.Wifi, Cyan),
         Triple("Info", Icons.Filled.Info, Green),
         Triple("Log", Icons.Filled.History, Amber),
-        Triple("Update", Icons.Filled.SystemUpdate, Color(0xFFB39DDB)),
-        Triple("Support", Icons.Filled.Favorite, Red)
+        Triple("Update", Icons.Filled.SystemUpdate, Color(0xFFB39DDB))
     )
 
     Surface(

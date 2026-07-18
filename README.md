@@ -5,7 +5,7 @@
 ### Open-source FCC unlock for DJI smart controllers with a screen
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue?style=flat-square)](LICENSE)
-[![GitHub release](https://img.shields.io/github/v/release/doesthings/FreeFCC?style=flat-square)](https://github.com/doesthings/FreeFCC/releases)
+[![GitHub release](https://img.shields.io/github/v/release/danusha2345/FreeFCC?style=flat-square)](https://github.com/danusha2345/FreeFCC/releases)
 [![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20this%20project-FF5E5B?style=flat-square&logo=ko-fi&logoColor=white)](https://ko-fi.com/freefcc)
 
 A free and open-source Android app that unlocks FCC mode, sends 4G activation frames, and queries device info on DJI smart controllers with a screen (RC2, RC Pro 2, RC Plus). No server. No license. No tracking. Just raw DUML commands from JSON profile files.
@@ -35,8 +35,9 @@ A free and open-source Android app that unlocks FCC mode, sends 4G activation fr
 | **LED Control** | Turn aircraft arm LEDs on or off (requires DJI Fly running with aircraft connected) |
 | **Device Info** | Queries the controller for hardware and firmware version |
 | **Auto-FCC** | Toggle to automatically connect and apply FCC every time the app opens |
-| **Auto-Updater** | Checks GitHub for new releases and lets you download/install from the app |
-| **Offline** | Everything runs locally. No internet, no server, no tracking (except update check) |
+| **Auto-Updater** | Checks `danusha2345/FreeFCC` GitHub Releases and lets you download/install from the app |
+| **LAN Log Bridge** | Auto-discovered, password-protected activity log endpoint on the controller's private Wi-Fi address |
+| **Local by default** | Internet is used only for update checks; the LAN log bridge stays on the controller's private Wi-Fi and can be disabled in the Log tab |
 | **Open Profiles** | Command frames are plain JSON files you can inspect and edit |
 | **No License** | No activation, no trial, no tracking, no server contact |
 
@@ -46,7 +47,7 @@ A free and open-source Android app that unlocks FCC mode, sends 4G activation fr
 
 | Download | Link |
 |----------|------|
-| FreeFCC App (APK) | [GitHub Releases](https://github.com/doesthings/FreeFCC/releases) or [freefcc.duckdns.org](https://freefcc.duckdns.org) |
+| FreeFCC App (APK) | [GitHub Releases](https://github.com/danusha2345/FreeFCC/releases) |
 | Helper Apps (zip) | [freefcc.duckdns.org/downloads/freefcc-helpers.zip](https://freefcc.duckdns.org/downloads/freefcc-helpers.zip) |
 
 You need both. The helper apps let you sideload FreeFCC onto the RC2.
@@ -63,17 +64,17 @@ You need both. The helper apps let you sideload FreeFCC onto the RC2.
 | DJI Air 3S | RC2 | Yes | No (no cellular module) | Not tested | FCC working |
 | DJI Neo 1 | RC2 | Yes | No (no cellular module) | Not tested | FCC working |
 | DJI Neo 2 | RC2 | Yes | No (no cellular module) | Not tested | FCC working |
-| DJI Avata 360 | RC2 | Yes | No (no cellular module) | Not tested | FCC working |
+| DJI Avata 360 Enhanced Transmission edition | RC2 | Yes | Unknown (integrated IoT eSIM; testing required) | Not tested | FCC working; 4G profile unverified |
 | DJI Matrice 350 | RC Plus | Yes | Yes (Cellular Dongle 2) | Not tested | FCC should work |
 | DJI Inspire 3 | RC Plus | Yes | Yes (Cellular Dongle 2) | Not tested | FCC should work |
 | Other RC2 aircraft | RC2 | Should work | Unknown | Unknown | FCC profile is universal |
 | RC Pro 2 / RC Plus | All | Direct install | Use [freefcc-launcher](https://github.com/doesthings/freefcc-launcher) for 4G | - | FCC works without launcher |
 
-4G activation is enterprise-only: it requires a DJI Cellular Dongle 2 physically connected to the aircraft. The Mini series does not have a cellular module and cannot accept 4G activation frames. When the probe returns a short model identity, FreeFCC refuses models outside the 4G-capable set (`wa341` Mavic 4 Pro, `wa233`/`wa234` Matrice 300/350, `wm630` Inspire 3). A full `1581...` factory serial does not encode the model, so that path relies on the 4G socket pre-check. 4G activation on the Mavic 4 Pro requires the [freefcc-launcher](https://github.com/doesthings/freefcc-launcher) on RC Pro 2 / RC Plus.
+The captured 4G profile is experimental and was derived from systems using external cellular hardware. DJI Avata 360 Enhanced Transmission edition instead has an integrated IoT eSIM module. FreeFCC can probe whether the controller exposes `/duss/mb/0x205`, but endpoint availability does not prove that the same 128-frame activation sequence is compatible. When the probe returns a short WA/WM identity, the legacy allowlist remains conservative (`wa341`, `wa233`, `wa234`, `wm630`); a freshly observed full `1581...` serial proceeds to the endpoint check.
 
 Tested on DJI RC 2 firmware v10.00.0700 and DJI RC Pro 2. Older firmware versions should also work, and future versions will likely continue to work unless DJI patches the DUML param write path.
 
-If you test it on a model or firmware version not listed here, please [open an issue](https://github.com/doesthings/FreeFCC/issues) and let me know.
+If you test it on a model or firmware version not listed here, please [open an issue](https://github.com/danusha2345/FreeFCC/issues) and let me know.
 
 ## Install Guide
 
@@ -123,11 +124,12 @@ Swipe from the right edge to open ATV Launcher. Open the Files app, find your fo
 1. Power on the drone and link it to the controller
 2. Open FreeFCC and tap **Connect**
 3. Tap **Enable FCC Mode** and wait for the green checkmark
-4. For 4G: tap **Send 4G Activation Frames** (the drone needs to be connected so the app can read its serial number). The app only confirms all frames were written successfully — it cannot confirm the aircraft activated 4G, since the socket doesn't respond. Check the DJI Fly app or the Cellular Dongle itself.
-   > **Note:** 4G activation has not been tested on hardware yet. The frame format is based on the documented DUML protocol, but I have not confirmed it works in practice. If you try it, please [open an issue](https://github.com/doesthings/FreeFCC/issues) with the result.
+4. For 4G diagnostics, tap **Probe 4G Endpoint** first. This is read-only and only checks whether `/duss/mb/0x205` is reachable. **Send 4G Activation Frames** remains experimental and confirms writes only, not activation.
+   > **Note:** The integrated eSIM path on DJI Avata 360 is not yet proven compatible with the captured external-module profile. Please attach the LAN logs to an [issue](https://github.com/danusha2345/FreeFCC/issues) when testing.
 5. To stop: tap **Stop FCC Mode** to restore CE
 6. For LED: tap **LED ON** or **LED OFF** (requires DJI Fly running with aircraft connected)
 7. The **Info** tab lets you query the controller's hardware and firmware version
+8. The **Log** tab starts a password-protected LAN bridge by default. A UDP beacon advertises only the controller IP and port to a trusted client on the same private Wi-Fi network; it never broadcasts the password or log contents.
 
 ## How Do I Know If It Worked?
 
@@ -159,7 +161,7 @@ If FreeFCC helped you out, please consider starring the repo and buying me a cof
 
 <div align="center">
 
-[![Star on GitHub](https://img.shields.io/badge/Star%20on%20GitHub-%E2%AD%90-yellow?style=for-the-badge&logo=github)](https://github.com/doesthings/FreeFCC)
+[![Star on GitHub](https://img.shields.io/badge/Star%20on%20GitHub-%E2%AD%90-yellow?style=for-the-badge&logo=github)](https://github.com/danusha2345/FreeFCC)
 
 [![Support on Ko-fi](https://img.shields.io/badge/Ko--fi-Buy%20me%20a%20coffee-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/freefcc)
 
@@ -185,11 +187,11 @@ The CE/default-region action is experimental. It writes the existing single-fram
 
 128 frames sent in a single round with 10ms between each. Each frame carries the aircraft's serial number in its payload. The serial is read from the controller at runtime by listening for telemetry on the DUML socket.
 
-**4G is enterprise-only.** Only aircraft that accept the DJI Cellular Dongle 2 support 4G activation: Mavic 4 Pro (`wa341`), Matrice 300/350 series (`wa233`/`wa234`), and Inspire 3 (`wm630`). The Mini series (`wa150`, `wa140`, `wm16x`) does not have a cellular module and will reject the frames. FreeFCC checks the aircraft model code before sending and refuses early if the model is not in the 4G-capable set.
+The captured profile is confirmed only as an external-module protocol artifact. Mavic 4 Pro (`wa341`), Matrice 300/350 (`wa233`/`wa234`), and Inspire 3 (`wm630`) remain the conservative short-code allowlist. DJI Avata 360 Enhanced Transmission edition has an integrated IoT eSIM module; compatibility with this exact profile is a hypothesis pending live endpoint and traffic evidence.
 
 **How the 4G activation frames are sent:**
 
-Unlike FCC which goes through the standard DUML TCP proxy on port 40009, 4G frames are sent via a Unix domain socket at `/duss/mb/0x205` (abstract namespace). This is a separate DJI internal command bus that talks directly to the cellular/4G module. The app opens one `LocalSocket` for the complete 128-frame burst, writes and flushes each frame, then closes the socket. No ACK is read back — the app can only confirm the frames were written, never that the aircraft actually activated 4G. Before sending, the app checks that the socket is connectable; if it is not, it tells the user to attach the Cellular Dongle 2 rather than failing 128 times.
+Unlike FCC which goes through the standard DUML TCP proxy on port 40009, 4G frames are sent via a Unix domain socket at `/duss/mb/0x205` (abstract namespace). This is a DJI internal DUSS route, not proof of a particular physical modem type. The app opens one `LocalSocket` for the complete 128-frame burst, writes and flushes each frame, then closes the socket. No ACK is read back — the app can only confirm the frames were written, never that the aircraft activated 4G. A separate read-only button checks endpoint reachability without sending frames.
 
 The frame format is:
 - `sender = 2` (CAMERA)
@@ -201,7 +203,7 @@ The frame format is:
 
 The aircraft identity is probed by listening on the detected DUML TCP port for telemetry data. The preferred format is a full `1581...` factory serial. If it is not found within the listen window, the app falls back to the 5-character model pattern `W[AM]xxx` (for example `WA341` or `WM630`). Both forms are accepted by the 4G flow; a short identity can be checked against the model allowlist, while a full factory serial proceeds to the socket pre-check. The last identity is cached for display, but serial-specific 4G sending requires it to be freshly observed in the current process so a previous aircraft's cached value is not reused blindly.
 
-4G activation requires a DJI Cellular Dongle 2 to be physically connected to the aircraft. Without the dongle, the Unix socket `/duss/mb/0x205` will not exist and the frames will fail to send. FreeFCC detects this with a fast pre-check before sending any frames.
+The `/duss/mb/0x205` pre-check proves only local route availability. It does not distinguish an external Cellular Dongle from an integrated eSIM module and does not validate model-specific payload semantics.
 
 ### Profile Format
 
@@ -309,5 +311,5 @@ The DUML protocol implementation is based on the publicly documented [dji-firmwa
 Questions, issues, or feedback? Reach out:
 
 - **Email:** [freefccidothings@gmail.com](mailto:freefccidothings@gmail.com)
-- **GitHub Issues:** [github.com/doesthings/FreeFCC/issues](https://github.com/doesthings/FreeFCC/issues)
+- **GitHub Issues:** [github.com/danusha2345/FreeFCC/issues](https://github.com/danusha2345/FreeFCC/issues)
 - **Ko-fi:** [ko-fi.com/freefcc](https://ko-fi.com/freefcc)
