@@ -46,18 +46,18 @@ import kotlin.math.PI
 // Colors
 // ═══════════════════════════════════════════════════════════════════════
 
-private val BgDark = Color(0xFF070A14)
-private val BgMid = Color(0xFF0D1220)
-private val BgLight = Color(0xFF121830)
-private val CardBg = Color(0xFF10162A)
-private val CardBorder = Color(0xFF1C2848)
-private val Cyan = Color(0xFF4FC3F7)
-private val Green = Color(0xFF34D399)
-private val Amber = Color(0xFFF59E0B)
-private val Red = Color(0xFFEF4444)
-private val TextWhite = Color(0xFFF0F4FF)
-private val TextGray = Color(0xFF7A85A3)
-private val TextDim = Color(0xFF4A5374)
+private val BgDark = Color(0xFF0C0E11)
+private val BgMid = Color(0xFF11151A)
+private val BgLight = Color(0xFF1A2027)
+private val CardBg = Color(0xFF151A20)
+private val CardBorder = Color(0xFF303842)
+private val Cyan = Color(0xFFFF9D4D)
+private val Green = Color(0xFF4ED69A)
+private val Amber = Color(0xFFFFD166)
+private val Red = Color(0xFFFF5C70)
+private val TextWhite = Color(0xFFF5F7FA)
+private val TextGray = Color(0xFFA5AFBA)
+private val TextDim = Color(0xFF687581)
 
 private val BottomNavHeight = 60.dp
 private val PageHorizontalPadding = 16.dp
@@ -212,15 +212,13 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
 
         GlowCard {
             ModeBadge(state)
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(6.dp))
 
             when {
                 state.isBusy -> {
                     ProgressDisplay(state.busyProgress, state.message)
                 }
                 !state.isConnected -> {
-                    BodyText("Connect your drone to the controller, then power it on.")
-                    Spacer(Modifier.height(8.dp))
                     GlowButton("Connect", Cyan, enabled = !state.isHardwareBusy) { viewModel.connect() }
                 }
                 state.isFccEnabled -> {
@@ -349,13 +347,6 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Aircraft LEDs", color = TextWhite, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Requires DJI Fly and a linked aircraft. On Avata 360, OFF also blanks battery indicators.",
-                        color = TextGray,
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp
-                    )
                     if (state.ledStatus.isNotEmpty()) {
                         Spacer(Modifier.height(6.dp))
                         Text(
@@ -757,10 +748,25 @@ private fun UpdatePage(state: AppState, viewModel: FccViewModel) {
                 Spacer(Modifier.height(14.dp))
                 when {
                     state.isDownloadingUpdate -> {
-                        ProgressDisplay(
-                            state.updateDownloadProgress,
-                            "Downloading... (${(state.updateDownloadProgress * 100).toInt()}%)"
-                        )
+                        if (state.updateDownloadProgress <= 0f) {
+                            Column(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalAlignment = Alignment.CenterHorizontally
+                            ) {
+                                CircularProgressIndicator(
+                                    strokeWidth = 2.5.dp,
+                                    color = Cyan,
+                                    modifier = Modifier.size(32.dp)
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                BodyText("Connecting to GitHub...", Cyan)
+                            }
+                        } else {
+                            ProgressDisplay(
+                                state.updateDownloadProgress,
+                                "Downloading... (${(state.updateDownloadProgress * 100).toInt()}%)"
+                            )
+                        }
                     }
                     state.isUpdateDownloaded -> {
                         GlowButton("Install Update", Green) {
@@ -971,11 +977,11 @@ private fun FccHeader(state: AppState) {
             fontWeight = FontWeight.Black,
             letterSpacing = 0.5.sp
         )
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(14.dp))
         Text(
             versionAndModel,
             color = TextDim,
-            fontSize = 10.sp,
+            fontSize = 12.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
@@ -1018,7 +1024,7 @@ private fun PageTitle(title: String, icon: androidx.compose.ui.graphics.vector.I
 private fun ModeBadge(state: AppState) {
     val active = state.isFccEnabled
     val bgBrush = if (active) {
-        Brush.horizontalGradient(listOf(Color(0xFF0A2540), Color(0xFF0E3050), Color(0xFF0A2540)))
+        Brush.horizontalGradient(listOf(Color(0xFF2A1A10), Color(0xFF3A2113), Color(0xFF2A1A10)))
     } else {
         Brush.horizontalGradient(listOf(BgLight.copy(0.4f), BgLight.copy(0.2f)))
     }
@@ -1287,7 +1293,7 @@ private fun BottomNavBar(
         Triple("FCC", Icons.Filled.Wifi, Cyan),
         Triple("Info", Icons.Filled.Info, Green),
         Triple("Log", Icons.Filled.History, Amber),
-        Triple("Update", Icons.Filled.SystemUpdate, Color(0xFFB39DDB))
+        Triple("Update", Icons.Filled.SystemUpdate, Color(0xFF79A8FF))
     )
 
     Surface(

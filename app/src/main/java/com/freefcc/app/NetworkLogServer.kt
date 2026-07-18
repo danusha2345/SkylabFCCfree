@@ -67,12 +67,14 @@ internal class NetworkLogServer(
             isDaemon = true
             start()
         }
-        beaconWorker = Thread(
-            { beaconLoop(socket, startedEndpoint, address) },
-            "FreeFCC-LAN-Beacon"
-        ).apply {
-            isDaemon = true
-            start()
+        if (!address.isLoopbackAddress) {
+            beaconWorker = Thread(
+                { beaconLoop(socket, startedEndpoint, address) },
+                "FreeFCC-LAN-Beacon"
+            ).apply {
+                isDaemon = true
+                start()
+            }
         }
         return startedEndpoint
     }
