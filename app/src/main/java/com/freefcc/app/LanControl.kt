@@ -12,6 +12,9 @@ internal object LanJson {
         null -> "null"
         is String -> quote(value)
         is Boolean, is Number -> value.toString()
+        is Map<*, *> -> value.entries.joinToString(prefix = "{", postfix = "}") { (key, item) ->
+            "${quote(key.toString())}:${encode(item)}"
+        }
         is Iterable<*> -> value.joinToString(prefix = "[", postfix = "]") { encode(it) }
         else -> quote(value.toString())
     }
@@ -64,6 +67,12 @@ internal object LanCommandCodec {
 
     fun optionalTimeout(params: Map<String, String>): Int =
         params["timeout_ms"]?.let { parseInt(it, "timeout_ms", 100, 10_000) } ?: 3_000
+
+    fun optionalCaptureDuration(params: Map<String, String>): Int =
+        params["duration_ms"]?.let { parseInt(it, "duration_ms", 100, 10_000) } ?: 3_000
+
+    fun optionalCaptureMaxFrames(params: Map<String, String>): Int =
+        params["max_frames"]?.let { parseInt(it, "max_frames", 1, 128) } ?: 64
 
     fun optionalBoolean(params: Map<String, String>, name: String, default: Boolean = false): Boolean {
         return when (val value = params[name]?.trim()?.lowercase(Locale.US)) {

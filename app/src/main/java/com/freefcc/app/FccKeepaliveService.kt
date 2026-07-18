@@ -38,6 +38,7 @@ class FccKeepaliveService : Service() {
         private const val INTERVAL_MS = 2000L
         private const val PREFS_NAME = "freefcc"
         private const val PREF_KEEPALIVE = "keepalive_running"
+        private const val PREF_FCC_SEQUENCE_WRITTEN = "fcc_sequence_written"
         private val runRequested = AtomicBoolean(false)
 
         fun start(context: Context) {
@@ -67,6 +68,23 @@ class FccKeepaliveService : Service() {
         fun isRunningFlagSet(context: Context): Boolean =
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(PREF_KEEPALIVE, false)
+
+        /** Last known successful FCC/keepalive profile write, not a physical region readback. */
+        fun wasFccSequenceWritten(context: Context): Boolean =
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .getBoolean(PREF_FCC_SEQUENCE_WRITTEN, false)
+
+        fun setFccSequenceWritten(context: Context, written: Boolean) {
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(PREF_FCC_SEQUENCE_WRITTEN, written).apply()
+        }
+
+        /** Clears a start request when startForegroundService() itself failed. */
+        fun clearRunRequest(context: Context) {
+            runRequested.set(false)
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(PREF_KEEPALIVE, false).apply()
+        }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -133,10 +151,10 @@ class FccKeepaliveService : Service() {
         keepaliveJob = scope.launch {
             val frames = cachedFrames ?: return@launch
             while (runRequested.get()) {
-                // The first tick fires after INTERVAL_MS. The synchronous send
-                // time is added to the period between successive loop starts.
-                delay(INTERVAL_MS)
-                if (!runRequested.get()) break
+                // Apply immediately when the service starts or is reasserted
+                // after returning from DJI Fly. Waiting one full interval here
+                // leaves enough time for DJI Fly to restore CE before the first
+                // keepalive write.
                 // Retry acquiring the lock with a short backoff instead of
                 // silently skipping the tick. This prevents a gap where DJI
                 // Fly can reset the radio to CE while another operation
@@ -150,13 +168,14 @@ class FccKeepaliveService : Service() {
                     if (hardwareLease != null) {
                         try {
                             if (runRequested.get()) {
-                                transport.sendFrames(
+                                val written = transport.sendFrames(
                                     frames = frames,
                                     rounds = 1,
                                     interFrameDelayMs = cachedInterFrameDelay,
                                     readWindowMs = cachedReadWindowMs,
                                     port = cachedPort
                                 )
+                                if (written) setFccSequenceWritten(this@FccKeepaliveService, true)
                             }
                         } catch (e: kotlinx.coroutines.CancellationException) {
                             throw e
@@ -171,8 +190,9 @@ class FccKeepaliveService : Service() {
                     // reasonable hardware operation.
                     delay(200)
                 }
-                // If we never got the lock (another op held it for >2s),
-                // the next loop iteration will try again after INTERVAL_MS.
+                // The synchronous send time is added to the period between
+                // successive loop starts.
+                delay(INTERVAL_MS)
             }
         }
     }

@@ -321,40 +321,141 @@ class DumlTransport {
             socket = Socket()
             socket.connect(InetSocketAddress(HOST, effectivePort), CONNECT_TIMEOUT_MS)
             socket.tcpNoDelay = true
-            socket.soTimeout = readWindowMs
+            val deadlineNanos = System.nanoTime() + readWindowMs.coerceAtLeast(1) * 1_000_000L
+
+            fun remainingTimeoutMs(): Int {
+                val remainingNanos = deadlineNanos - System.nanoTime()
+                if (remainingNanos <= 0) return 0
+                return ((remainingNanos + 999_999L) / 1_000_000L)
+                    .coerceAtMost(Int.MAX_VALUE.toLong())
+                    .toInt()
+            }
 
             socket.getOutputStream().apply { write(frame); flush() }
 
             val input = socket.getInputStream()
-            val header = readBytes(input, 11) ?: return DumlRawExchange(null, null)
+            var lastCompleteFrame: ByteArray? = null
 
-            // Guard against a short read returning fewer than 3 bytes —
-            // indexing header[0..2] for magic/length would otherwise throw.
-            if (header.size < 3) return DumlRawExchange(header, null)
+            // The controller proxy may emit unsolicited telemetry before the
+            // response to our request. Consume complete unrelated frames until
+            // the strict validator finds the matching route/sequence/cmd or the
+            // caller's overall read window expires.
+            while (true) {
+                val headerTimeout = remainingTimeoutMs()
+                if (headerTimeout <= 0) return DumlRawExchange(lastCompleteFrame, null)
+                val header = readBytesUntilDeadline(input, 11, socket, deadlineNanos)
+                    ?: return DumlRawExchange(lastCompleteFrame, null)
 
-            // Verify magic byte before trusting the encoded length enough to read more
-            if (header[0] != 0x55.toByte()) return DumlRawExchange(header, null)
+                // A partial or malformed header loses stream alignment, so it
+                // is returned as the strongest available evidence.
+                if (header.size < 3) return DumlRawExchange(header, null)
+                if (header[0] != 0x55.toByte()) return DumlRawExchange(header, null)
 
-            // Extract total length from bytes 1-2 (11-bit LE) to know how much more to read
-            val totalLength = (header[1].toInt() and 0xFF) or ((header[2].toInt() and 0x03) shl 8)
-            if (totalLength < 13 || totalLength > 1023) return DumlRawExchange(header, null)
-            if (header.size < 11) return DumlRawExchange(header, null)
+                val totalLength = (header[1].toInt() and 0xFF) or
+                    ((header[2].toInt() and 0x03) shl 8)
+                if (totalLength < 13 || totalLength > 1023) {
+                    return DumlRawExchange(header, null)
+                }
+                if (header.size < 11) return DumlRawExchange(header, null)
 
-            // Read the rest (payload + 2 CRC bytes)
-            val remaining = readBytes(input, totalLength - 11)
-                ?: return DumlRawExchange(header, null)
-            val response = header + remaining
+                val bodyTimeout = remainingTimeoutMs()
+                if (bodyTimeout <= 0) return DumlRawExchange(header, null)
+                val expectedBodySize = totalLength - 11
+                val remaining = readBytesUntilDeadline(input, expectedBodySize, socket, deadlineNanos)
+                    ?: return DumlRawExchange(header, null)
+                val response = header + remaining
+                if (remaining.size != expectedBodySize) {
+                    return DumlRawExchange(response, null)
+                }
 
-            return DumlRawExchange(
-                responseFrame = response,
-                validatedPayload = DumlBuilder.validateResponse(frame, response)
-            )
+                lastCompleteFrame = response
+                val payload = DumlBuilder.validateResponse(frame, response)
+                if (payload != null) {
+                    return DumlRawExchange(response, payload)
+                }
+            }
 
         } catch (_: IOException) {
             return DumlRawExchange(null, null)
         } finally {
             try { socket?.close() } catch (_: IOException) {}
         }
+    }
+
+    /**
+     * Passively collects structurally valid DUML frames delivered to a fresh
+     * connection by the selected localhost proxy. This does not require root,
+     * but it only sees traffic the DJI broker publishes to this socket; it is
+     * not a packet sniffer for other processes' private TCP streams.
+     */
+    fun captureFrames(
+        durationMs: Int = 3_000,
+        maxFrames: Int = 64,
+        port: Int = PORT
+    ): List<ByteArray> {
+        require(durationMs in 100..10_000) { "invalid_duration_ms" }
+        require(maxFrames in 1..128) { "invalid_max_frames" }
+
+        val frames = ArrayList<ByteArray>(minOf(maxFrames, 64))
+        var socket: Socket? = null
+        try {
+            socket = Socket()
+            socket.connect(InetSocketAddress(HOST, port), CONNECT_TIMEOUT_MS)
+            socket.tcpNoDelay = true
+            val input = socket.getInputStream()
+            val deadlineNanos = System.nanoTime() + durationMs * 1_000_000L
+
+            while (frames.size < maxFrames) {
+                val remainingNanos = deadlineNanos - System.nanoTime()
+                if (remainingNanos <= 0) break
+                val timeoutMs = ((remainingNanos + 999_999L) / 1_000_000L)
+                    .coerceAtMost(250L)
+                    .coerceAtLeast(1L)
+                    .toInt()
+                // Resynchronize byte-by-byte until a DUML magic byte appears.
+                val magic = readBytesUntilDeadline(
+                    input = input,
+                    count = 1,
+                    socket = socket,
+                    deadlineNanos = deadlineNanos,
+                    maxReadTimeoutMs = timeoutMs
+                ) ?: continue
+                if (magic[0] != 0x55.toByte()) continue
+
+                val headerTail = readBytesUntilDeadline(
+                    input = input,
+                    count = 10,
+                    socket = socket,
+                    deadlineNanos = deadlineNanos,
+                    maxReadTimeoutMs = 250
+                ) ?: break
+                if (headerTail.size != 10) break
+                val header = magic + headerTail
+                val totalLength = (header[1].toInt() and 0xFF) or
+                    ((header[2].toInt() and 0x03) shl 8)
+                if (totalLength < 13 || totalLength > 1023) continue
+                if (DumlBuilder.crc8(header, 0, 3) != (header[3].toInt() and 0xFF)) continue
+
+                val body = readBytesUntilDeadline(
+                    input = input,
+                    count = totalLength - 11,
+                    socket = socket,
+                    deadlineNanos = deadlineNanos,
+                    maxReadTimeoutMs = 250
+                ) ?: break
+                if (body.size != totalLength - 11) break
+                val frame = header + body
+                val expectedCrc = DumlBuilder.crc16(frame, 0, totalLength - 2)
+                val actualCrc = (frame[totalLength - 2].toInt() and 0xFF) or
+                    ((frame[totalLength - 1].toInt() and 0xFF) shl 8)
+                if (expectedCrc == actualCrc) frames.add(frame)
+            }
+        } catch (_: IOException) {
+            // Return any complete frames already captured before disconnect.
+        } finally {
+            try { socket?.close() } catch (_: IOException) {}
+        }
+        return frames
     }
 
     /**
@@ -557,6 +658,35 @@ class DumlTransport {
         val out = ByteArray(count)
         var read = 0
         while (read < count) {
+            val n = try {
+                input.read(out, read, count - read)
+            } catch (_: IOException) {
+                return if (read > 0) out.copyOf(read) else null
+            }
+            if (n <= 0) return if (read > 0) out.copyOf(read) else null
+            read += n
+        }
+        return out
+    }
+
+    /** Reads exactly [count] bytes without allowing trickle traffic to extend a global deadline. */
+    private fun readBytesUntilDeadline(
+        input: java.io.InputStream,
+        count: Int,
+        socket: Socket,
+        deadlineNanos: Long,
+        maxReadTimeoutMs: Int = Int.MAX_VALUE
+    ): ByteArray? {
+        val out = ByteArray(count)
+        var read = 0
+        while (read < count) {
+            val remainingNanos = deadlineNanos - System.nanoTime()
+            if (remainingNanos <= 0) return if (read > 0) out.copyOf(read) else null
+            val remainingMs = ((remainingNanos + 999_999L) / 1_000_000L)
+                .coerceAtMost(maxReadTimeoutMs.toLong())
+                .coerceAtLeast(1L)
+                .toInt()
+            socket.soTimeout = remainingMs
             val n = try {
                 input.read(out, read, count - read)
             } catch (_: IOException) {

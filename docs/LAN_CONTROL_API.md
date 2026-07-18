@@ -122,3 +122,25 @@ parsing is intentionally not supported yet.
 Allowed ports are `40007`, `40009`, and `8901..8904`. Payload length is limited
 to the DUML frame maximum. The API never exposes shell commands, filesystem
 access, ADB, or an arbitrary network destination.
+
+## Passive DUML capture
+
+`duml_capture` listens on a fresh connection to one allowlisted localhost proxy
+port and returns every structurally valid frame delivered by the DJI broker as
+raw hex plus decoded routing/command fields:
+
+```bash
+curl -sS -X POST \
+  -H "X-FreeFCC-Password: $FREEFCC_PASSWORD" \
+  --data 'command=duml_capture' \
+  --data 'port=40009' \
+  --data 'duration_ms=5000' \
+  --data 'max_frames=64' \
+  "$FREEFCC_URL/api/command"
+```
+
+`duration_ms` is limited to `100..10000`, `max_frames` to `1..128`. This is a
+rootless broker capture: it sees unsolicited/forwarded frames published to this
+socket. It does not claim to packet-sniff private loopback TCP streams belonging
+to DJI Fly or other processes; a complete `tcpdump -i lo` capture still requires
+privileged access.

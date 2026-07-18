@@ -1,6 +1,7 @@
 package com.freefcc.app
 
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -111,6 +112,117 @@ class DumlTransportTest {
         assertNotNull(exchange.responseFrame)
         assertArrayEquals(response, exchange.responseFrame)
         assertArrayEquals(expectedPayload, exchange.validatedPayload)
+    }
+
+    @Test
+    fun rawExchangeSkipsUnrelatedTelemetryBeforeMatchingResponse() {
+        val request = DumlBuilder().buildFrame(
+            DumlFrame(0x2A, 0x40, 0x03, 0xF8, 0x03, byteArrayOf(0xA2.toByte(), 0x59, 0xCE.toByte(), 0xED.toByte()))
+        )
+        val unrelatedRequest = DumlBuilder().buildFrame(
+            DumlFrame(0x2A, 0x40, 0x06, 0xAE, 0x03, ByteArray(0))
+        )
+        val unrelatedResponse = buildResponse(unrelatedRequest, byteArrayOf(0x04))
+        val expectedPayload = byteArrayOf(0, 0xA2.toByte(), 0x59, 0xCE.toByte(), 0xED.toByte(), 0xEF.toByte())
+        val expectedResponse = buildResponse(request, expectedPayload)
+        val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val serverThread = Thread {
+            server.use {
+                it.accept().use { socket ->
+                    socket.getInputStream().read(ByteArray(1024))
+                    socket.getOutputStream().apply {
+                        write(unrelatedResponse)
+                        write(expectedResponse)
+                        flush()
+                    }
+                }
+            }
+        }
+        serverThread.start()
+
+        val exchange = DumlTransport().sendAndReceiveRaw(
+            frame = request,
+            readWindowMs = 1_000,
+            port = server.localPort,
+            autoDetectPort = false
+        )
+
+        serverThread.join(5_000)
+        assertArrayEquals(expectedResponse, exchange.responseFrame)
+        assertArrayEquals(expectedPayload, exchange.validatedPayload)
+    }
+
+    @Test
+    fun passiveCaptureCollectsMultipleValidFrames() {
+        val firstRequest = DumlBuilder().buildFrame(
+            DumlFrame(0x2A, 0x40, 0x03, 0xF8, 0x03, ByteArray(0))
+        )
+        val secondRequest = DumlBuilder().buildFrame(
+            DumlFrame(0x2A, 0x40, 0x06, 0xAE, 0x03, ByteArray(0))
+        )
+        val first = buildResponse(firstRequest, byteArrayOf(0x01))
+        val second = buildResponse(secondRequest, byteArrayOf(0x02))
+        val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val serverThread = Thread {
+            server.use {
+                it.accept().use { socket ->
+                    socket.getOutputStream().apply {
+                        write(first)
+                        write(second)
+                        flush()
+                    }
+                }
+            }
+        }
+        serverThread.start()
+
+        val frames = DumlTransport().captureFrames(
+            durationMs = 1_000,
+            maxFrames = 2,
+            port = server.localPort
+        )
+
+        serverThread.join(5_000)
+        assertEquals(2, frames.size)
+        assertArrayEquals(first, frames[0])
+        assertArrayEquals(second, frames[1])
+    }
+
+    @Test
+    fun passiveCaptureDeadlineCannotBeExtendedByTrickleHeader() {
+        val request = DumlBuilder().buildFrame(
+            DumlFrame(0x2A, 0x40, 0x03, 0xF8, 0x03, ByteArray(0))
+        )
+        val response = buildResponse(request, byteArrayOf(0x01))
+        val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val serverThread = Thread {
+            server.use {
+                it.accept().use { socket ->
+                    runCatching {
+                        for (byte in response) {
+                            socket.getOutputStream().apply {
+                                write(byte.toInt())
+                                flush()
+                            }
+                            Thread.sleep(80)
+                        }
+                    }
+                }
+            }
+        }
+        serverThread.start()
+
+        val startedAt = System.nanoTime()
+        val frames = DumlTransport().captureFrames(
+            durationMs = 150,
+            maxFrames = 1,
+            port = server.localPort
+        )
+        val elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L
+
+        serverThread.join(2_000)
+        assertTrue("capture exceeded its global deadline: ${elapsedMs}ms", elapsedMs < 600)
+        assertTrue(frames.isEmpty())
     }
 
     @Test

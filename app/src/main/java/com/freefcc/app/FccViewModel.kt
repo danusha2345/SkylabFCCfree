@@ -79,7 +79,7 @@ internal data class FourGIdentity(
 class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     companion object {
-        const val APP_VERSION = "1.5.11"
+        const val APP_VERSION = "1.5.12"
 
         private const val MAX_LOG_ENTRIES = 200
         private val processLogLock = Any()
@@ -121,7 +121,8 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             "update_download",
             "launch_dji_fly",
             "duml_send",
-            "duml_request"
+            "duml_request",
+            "duml_capture"
         )
 
         private val FULL_SERIAL_PATTERN = Regex("^1581[0-9A-Z]{12,18}$")
@@ -210,9 +211,34 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         val autoEnabled = prefs.getBoolean("auto_fcc", false)
         // Sync the keepalive toggle with the persistent flag so the UI is
         // correct after a process restart (e.g. low-memory kill + sticky restart).
-        val keepaliveRunning = FccKeepaliveService.isRunningFlagSet(app)
-        update { copy(controllerModel = model, status = "disconnected", autoFcc = autoEnabled, isKeepaliveRunning = keepaliveRunning) }
+        val keepaliveRequested = FccKeepaliveService.isRunningFlagSet(app)
+        val fccSequenceWritten = FccKeepaliveService.wasFccSequenceWritten(app)
+        update {
+            copy(
+                controllerModel = model,
+                status = "disconnected",
+                autoFcc = autoEnabled,
+                isKeepaliveRunning = keepaliveRequested,
+                isFccEnabled = fccSequenceWritten
+            )
+        }
         log("FreeFCC v$APP_VERSION started on $model")
+
+        // The SharedPreferences flag records user intent, not proof that the
+        // service survived an Activity/process recreation. Re-send ACTION_START
+        // so Android recreates the foreground service if needed and the first
+        // keepalive write is not silently lost after returning from DJI Fly.
+        if (keepaliveRequested) {
+            try {
+                FccKeepaliveService.start(app)
+                log("FCC keepalive requested state restored")
+                refreshFccWrittenStateAfterKeepaliveStart()
+            } catch (e: Exception) {
+                FccKeepaliveService.clearRunRequest(app)
+                update { copy(isKeepaliveRunning = false) }
+                log("FCC keepalive restore failed: ${e.message}")
+            }
+        }
 
         if (prefs.getBoolean("lan_log_enabled", true)) {
             setLanLoggingEnabled(true)
@@ -238,11 +264,20 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         runOnIO {
             if (transport.connect()) {
                 val detectedPort = transport.getDetectedPort()
+                val keepaliveRequested = _state.value.isKeepaliveRunning
+                val fccSequenceWritten = FccKeepaliveService.wasFccSequenceWritten(app)
                 update {
                     copy(
-                        status = "connected",
+                        status = if (fccSequenceWritten) "fcc_enabled" else "connected",
                         isConnected = true,
-                        message = "DUML proxy ready."
+                        isFccEnabled = fccSequenceWritten,
+                        message = if (fccSequenceWritten && keepaliveRequested) {
+                            "FCC sequence written; keepalive requested — verify in DJI Fly."
+                        } else if (fccSequenceWritten) {
+                            "FCC sequence was written — verify the region in DJI Fly."
+                        } else {
+                            "DUML proxy ready."
+                        }
                     )
                 }
                 log("DUML proxy restored after app reopen")
@@ -376,6 +411,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 ) { progress -> update { copy(busyProgress = progress) } }
 
                 if (success) {
+                    FccKeepaliveService.setFccSequenceWritten(app, true)
                     update {
                         copy(
                             status = "fcc_enabled",
@@ -518,6 +554,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 ) { progress -> update { copy(busyProgress = progress) } }
 
                 if (success) {
+                    FccKeepaliveService.setFccSequenceWritten(app, true)
                     update {
                         copy(
                             status = "fcc_enabled",
@@ -575,6 +612,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 )
 
                 if (success) {
+                    FccKeepaliveService.setFccSequenceWritten(app, false)
                     update {
                         copy(
                             status = "connected",
@@ -612,8 +650,15 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             return
         }
         update { copy(isKeepaliveRunning = true) }
-        FccKeepaliveService.start(app)
-        log("Started FCC keepalive — re-applying every 2s to prevent CE reset")
+        try {
+            FccKeepaliveService.start(app)
+            refreshFccWrittenStateAfterKeepaliveStart()
+            log("Started FCC keepalive — re-applying every 2s to prevent CE reset")
+        } catch (e: Exception) {
+            FccKeepaliveService.clearRunRequest(app)
+            update { copy(isKeepaliveRunning = false) }
+            log("Could not start FCC keepalive: ${e.message}")
+        }
     }
 
     /** Stops the keepalive foreground service. */
@@ -621,6 +666,26 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         FccKeepaliveService.stop(app)
         update { copy(isKeepaliveRunning = false) }
         log("FCC keepalive stopped")
+    }
+
+    /** Refreshes UI only after the service records an actually completed write. */
+    private fun refreshFccWrittenStateAfterKeepaliveStart() {
+        runOnIO {
+            delay(750)
+            if (FccKeepaliveService.wasFccSequenceWritten(app)) {
+                update {
+                    copy(
+                        isFccEnabled = true,
+                        status = if (isConnected) "fcc_enabled" else status,
+                        message = if (isConnected) {
+                            "FCC sequence written; keepalive requested — verify in DJI Fly."
+                        } else {
+                            message
+                        }
+                    )
+                }
+            }
+        }
     }
 
     // --- Launch DJI Fly ---
@@ -1208,7 +1273,9 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         "payload (hex)",
                         "port (default 40009)",
                         "timeout_ms (duml_request)",
-                        "wrapper=true|false (duml_send only)"
+                        "wrapper=true|false (duml_send only)",
+                        "duration_ms=100..10000 (duml_capture)",
+                        "max_frames=1..128 (duml_capture)"
                     )
                 )
             )
@@ -1247,6 +1314,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 "launch_dji_fly" -> accepted(command) { launchDjiFly() }
                 "duml_send" -> handleLanDuml(params, expectResponse = false)
                 "duml_request" -> handleLanDuml(params, expectResponse = true)
+                "duml_capture" -> handleLanDumlCapture(params)
                 else -> lanError(400, "unknown_command")
             }
         } catch (e: IllegalArgumentException) {
@@ -1411,6 +1479,49 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 update { copy(isLedBusy = false) }
             }
         }
+    }
+
+    private fun handleLanDumlCapture(params: Map<String, String>): NetworkApiResponse {
+        val port = LanCommandCodec.optionalPort(params)
+        val durationMs = LanCommandCodec.optionalCaptureDuration(params)
+        val maxFrames = LanCommandCodec.optionalCaptureMaxFrames(params)
+        log("LAN DUML capture started: port=$port duration=${durationMs}ms max=$maxFrames")
+
+        val frames = transport.captureFrames(
+            durationMs = durationMs,
+            maxFrames = maxFrames,
+            port = port
+        )
+        val decoded = frames.map { frame ->
+            val totalLength = frame.size
+            linkedMapOf<String, Any?>(
+                "hex" to LanCommandCodec.bytesToHex(frame),
+                "length" to totalLength,
+                "sender" to "0x%02x".format(Locale.US, frame[4].toInt() and 0xFF),
+                "dst" to "0x%02x".format(Locale.US, frame[5].toInt() and 0xFF),
+                "seq" to ((frame[6].toInt() and 0xFF) or ((frame[7].toInt() and 0xFF) shl 8)),
+                "cmd_type" to "0x%02x".format(Locale.US, frame[8].toInt() and 0xFF),
+                "cmd_set" to "0x%02x".format(Locale.US, frame[9].toInt() and 0xFF),
+                "cmd_id" to "0x%02x".format(Locale.US, frame[10].toInt() and 0xFF),
+                "payload_hex" to if (totalLength > 13) {
+                    LanCommandCodec.bytesToHex(frame.copyOfRange(11, totalLength - 2))
+                } else {
+                    ""
+                }
+            )
+        }
+        log("LAN DUML capture completed: ${frames.size} frame(s)")
+        return NetworkApiResponse(
+            200,
+            LanJson.objectOf(
+                "ok" to true,
+                "command" to "duml_capture",
+                "port" to port,
+                "duration_ms" to durationMs,
+                "captured" to frames.size,
+                "frames" to decoded
+            )
+        )
     }
 
     private fun lanError(code: Int, error: String, requestHex: String? = null): NetworkApiResponse =

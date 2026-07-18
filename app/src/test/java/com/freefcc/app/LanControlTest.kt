@@ -22,6 +22,15 @@ class LanControlTest {
     }
 
     @Test
+    fun jsonEncodesCapturedFrameMaps() {
+        val json = LanJson.objectOf(
+            "frames" to listOf(linkedMapOf("cmd_set" to "0x03", "seq" to 42))
+        )
+
+        assertEquals("{\"frames\":[{\"cmd_set\":\"0x03\", \"seq\":42}]}", json)
+    }
+
+    @Test
     fun rawDumlParametersAcceptHexAndKnownPorts() {
         val params = mapOf(
             "dst" to "0x03",
@@ -35,6 +44,8 @@ class LanControlTest {
         assertEquals(0xE2, LanCommandCodec.requiredByte(params, "cmd_id"))
         assertArrayEquals(byteArrayOf(0, 0, 1, 0), LanCommandCodec.optionalHex(params))
         assertEquals(40009, LanCommandCodec.optionalPort(params))
+        assertEquals(3000, LanCommandCodec.optionalCaptureDuration(emptyMap()))
+        assertEquals(64, LanCommandCodec.optionalCaptureMaxFrames(emptyMap()))
     }
 
     @Test
