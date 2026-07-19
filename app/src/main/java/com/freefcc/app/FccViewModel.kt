@@ -97,7 +97,7 @@ private class LanWriteLease(
 class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     companion object {
-        const val APP_VERSION = "1.5.15"
+        const val APP_VERSION = "1.5.16"
 
         private const val MAX_LOG_ENTRIES = 200
         private val processLogLock = Any()
@@ -206,7 +206,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("freefcc", Context.MODE_PRIVATE)
     private var initialized = false
     private var autoFccJob: Job? = null
-    private val startupLedReadAttempted = AtomicBoolean(false)
+    private val startupLedReadGate = StartupLedReadGate()
     @Volatile private var aircraftIdentityVerified = false
 
     init {
@@ -912,15 +912,29 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     // --- LED ---
 
     private fun refreshLedStateAfterStartup() {
-        if (!startupLedReadAttempted.compareAndSet(false, true)) return
-        if (!refreshLedState()) {
-            // No read was started, so a later successful connection may retry.
-            startupLedReadAttempted.set(false)
+        if (!startupLedReadGate.tryBegin()) return
+        if (!refreshLedState(::finishStartupLedRead)) {
+            finishStartupLedRead(wireAttempted = false)
+        }
+    }
+
+    private fun finishStartupLedRead(wireAttempted: Boolean) {
+        if (!startupLedReadGate.finish(wireAttempted)) return
+        // One bounded retry is allowed only when contention prevented any wire
+        // request. A real read timeout/no-response still counts as the single
+        // startup read and never creates polling.
+        viewModelScope.launch {
+            delay(750)
+            refreshLedStateAfterStartup()
         }
     }
 
     /** Reads the current aircraft lamp parameter without changing it. */
-    fun refreshLedState(): Boolean {
+    fun refreshLedState(): Boolean = refreshLedState(onWireAttemptFinished = null)
+
+    private fun refreshLedState(
+        onWireAttemptFinished: ((Boolean) -> Unit)?
+    ): Boolean {
         if (!ledOperationBusy.compareAndSet(false, true)) {
             log("LED busy — please wait.")
             return false
@@ -937,6 +951,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
         runOnIO {
             var portLease: Port40007Lock.Lease? = null
+            var wireAttempted = false
             try {
                 portLease = Port40007Lock.acquireForLed()
                 if (portLease == null) {
@@ -944,7 +959,10 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     log("LED read failed to pause the Home Point listener")
                     return@runOnIO
                 }
+                wireAttempted = true
                 applyLedReadback(readLedState(DumlTransport()), "LED state unavailable")
+            } catch (e: CancellationException) {
+                throw e
             } catch (e: Exception) {
                 log("LED read error: ${e.message}")
                 update {
@@ -958,6 +976,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 portLease?.let(Port40007Lock::releaseFromLed)
                 ledOperationBusy.set(false)
                 update { copy(isLedBusy = false) }
+                onWireAttemptFinished?.invoke(wireAttempted)
             }
         }
         return true
@@ -1824,6 +1843,24 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         "elapsed_ms" to elapsedMs
                     )
                 )
+            } else if (exchange.failureStage == "read") {
+                log("LAN wire exchange read failed after ${exchange.responseBytes.size}B")
+                NetworkApiResponse(
+                    502,
+                    LanJson.objectOf(
+                        "ok" to false,
+                        "command" to "wire_exchange",
+                        "error" to "read_failed",
+                        "failure_stage" to exchange.failureStage,
+                        "termination" to exchange.termination?.name?.lowercase(Locale.US),
+                        "truncated" to true,
+                        "port" to port,
+                        "request_hex" to LanCommandCodec.bytesToHex(wire),
+                        "response_hex" to LanCommandCodec.bytesToHex(exchange.responseBytes),
+                        "response_bytes" to exchange.responseBytes.size,
+                        "elapsed_ms" to elapsedMs
+                    )
+                )
             } else {
                 log("LAN wire exchange completed: rx=${exchange.responseBytes.size}B elapsed=${elapsedMs}ms")
                 NetworkApiResponse(
@@ -1835,6 +1872,8 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         "request_hex" to LanCommandCodec.bytesToHex(wire),
                         "response_hex" to LanCommandCodec.bytesToHex(exchange.responseBytes),
                         "response_bytes" to exchange.responseBytes.size,
+                        "termination" to exchange.termination?.name?.lowercase(Locale.US),
+                        "truncated" to (exchange.termination == WireReadTermination.MAX_BYTES),
                         "elapsed_ms" to elapsedMs
                     )
                 )

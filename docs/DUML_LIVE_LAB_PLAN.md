@@ -16,11 +16,16 @@ Avata 360/O4 подтвердил доступный readback Home Point: passiv
 на `40007`, modern payload 102 B, `home_state` LE u16 at offset 20 меняется
 `0x0046 → 0x0047`, то есть bit `0x01` переходит `0 → 1`.
 
-В unreleased `1.5.15` реализована новая one-shot схема:
+В release candidate `1.5.16` реализована новая one-shot схема:
 `HomePointMonitor` держит одно соединение `40007` только до первого CRC-valid
-`03:44` с bit `0x01=1`, освобождает порт, service выполняет полный `fcc.json`
-и останавливается. Периодический четырёхкадровый профиль из runtime исключён.
-Unit tests пройдены; проверка listener и FCC persistence на RC2 остаётся PENDING.
+`03:44` с подтверждённым `cmdType=0x00` и bit `0x01=1`, освобождает порт,
+service выполняет полный `fcc.json` и останавливается. Периодический
+четырёхкадровый профиль из runtime исключён. Generation/delivery gate не даёт
+старому worker завершить новый запрос или стартовать его до доставки
+`ACTION_START`; повтор разрешён только при отдельном preflight connect failure,
+до входа в frame loop. Startup LED read имеет максимум одну повторную попытку
+только при port contention до wire exchange. Проверка listener, update flow и
+FCC persistence на RC2 остаётся PENDING до публикации APK.
 
 Полный inventory transports, command frequencies, payload evidence и privacy
 границы: [DUML_STREAM_MAP.md](DUML_STREAM_MAP.md).
@@ -86,6 +91,20 @@ payload decode.
 она на 27 commits позади `upstream/main` и вообще не содержит foreground
 keepalive/`BootReceiver`. После Home Point она может восстановить FCC только
 повторным ручным запуском полного apply.
+
+## Release evidence `1.5.16`
+
+| Проверка | Результат |
+|---|---|
+| Main | PENDING: commit и push после полного regression-прогона |
+| Build | 73 JVM tests, `lintDebug`, `assembleDebug` и `assembleRelease` завершены успешно |
+| APK metadata | package `com.freefcc.app`, versionCode `33`, versionName `1.5.16`, APK Signature Scheme v3 |
+| Совместимость подписи | Certificate SHA-256 совпадает с предыдущим установленным релизом: `1e50efc760a23d71f5ec57f855af4b8c42c21fea6da9122889d59b3b23b890ce` |
+| Release artifact | `FreeFCC-1.5.16.apk`, SHA-256 `d46e8a5f90ce19794ff04c62b99c06fc31a6b12d45e02bb17e59076504e205f0` |
+| Release | PENDING: GitHub release `v1.5.16` |
+| RC2 update | PENDING: in-app update и повторное подключение LAN bridge |
+| Auto-FCC runtime | PENDING: exact Home Point transition, один full apply, listener/service остановлены без повторных writes |
+| LED runtime | PENDING: один startup read, readback после ON/OFF, без polling |
 
 ## Release evidence `1.5.14`
 

@@ -4,6 +4,7 @@ import android.net.LocalSocket
 import android.net.LocalSocketAddress
 import java.io.ByteArrayOutputStream
 import java.io.IOException
+import java.io.InputStream
 import java.net.InetSocketAddress
 import java.net.Socket
 import java.net.SocketTimeoutException
@@ -53,8 +54,56 @@ data class DumlRawExchange(
 data class WireExchangeResult(
     val writeCompleted: Boolean,
     val responseBytes: ByteArray,
-    val failureStage: String? = null
+    val failureStage: String? = null,
+    val termination: WireReadTermination? = null
 )
+
+enum class WireReadTermination {
+    DEADLINE,
+    EOF,
+    MAX_BYTES,
+    IO_ERROR
+}
+
+internal data class WireReadResult(
+    val bytes: ByteArray,
+    val termination: WireReadTermination
+)
+
+internal fun readBoundedWire(
+    input: InputStream,
+    maxBytes: Int,
+    deadlineNanos: Long,
+    setReadTimeout: (Int) -> Unit,
+    nanoTime: () -> Long = System::nanoTime
+): WireReadResult {
+    val output = ByteArrayOutputStream(minOf(maxBytes, 16_384))
+    val buffer = ByteArray(minOf(4_096, maxBytes))
+    while (output.size() < maxBytes) {
+        val remainingNanos = deadlineNanos - nanoTime()
+        if (remainingNanos <= 0) {
+            return WireReadResult(output.toByteArray(), WireReadTermination.DEADLINE)
+        }
+        setReadTimeout(
+            ((remainingNanos + 999_999L) / 1_000_000L)
+                .coerceAtMost(250L)
+                .coerceAtLeast(1L)
+                .toInt()
+        )
+        val count = try {
+            input.read(buffer, 0, minOf(buffer.size, maxBytes - output.size()))
+        } catch (_: SocketTimeoutException) {
+            continue
+        } catch (_: IOException) {
+            return WireReadResult(output.toByteArray(), WireReadTermination.IO_ERROR)
+        }
+        if (count <= 0) {
+            return WireReadResult(output.toByteArray(), WireReadTermination.EOF)
+        }
+        output.write(buffer, 0, count)
+    }
+    return WireReadResult(output.toByteArray(), WireReadTermination.MAX_BYTES)
+}
 
 private data class DumlStreamResult(
     val completeFrames: List<ByteArray>,
@@ -453,7 +502,6 @@ class DumlTransport {
         require(maxBytes in 1..65_536) { "invalid_max_bytes" }
 
         var socket: Socket? = null
-        val output = ByteArrayOutputStream(minOf(maxBytes, 16_384))
         var failureStage = "connect"
         var writeCompleted = false
         try {
@@ -469,39 +517,29 @@ class DumlTransport {
             failureStage = "read"
             onWriteFlushed()
 
-            val input = socket.getInputStream()
-            val buffer = ByteArray(minOf(4_096, maxBytes))
             val deadlineNanos = System.nanoTime() + durationMs * 1_000_000L
-            while (output.size() < maxBytes) {
-                val remainingNanos = deadlineNanos - System.nanoTime()
-                if (remainingNanos <= 0) break
-                socket.soTimeout = ((remainingNanos + 999_999L) / 1_000_000L)
-                    .coerceAtMost(250L)
-                    .coerceAtLeast(1L)
-                    .toInt()
-                val count = try {
-                    input.read(buffer, 0, minOf(buffer.size, maxBytes - output.size()))
-                } catch (_: SocketTimeoutException) {
-                    continue
-                } catch (_: IOException) {
-                    break
-                }
-                if (count <= 0) break
-                output.write(buffer, 0, count)
-            }
+            val readResult = readBoundedWire(
+                input = socket.getInputStream(),
+                maxBytes = maxBytes,
+                deadlineNanos = deadlineNanos,
+                setReadTimeout = { socket.soTimeout = it }
+            )
+            return WireExchangeResult(
+                writeCompleted = true,
+                responseBytes = readResult.bytes,
+                failureStage = if (readResult.termination == WireReadTermination.IO_ERROR) "read" else null,
+                termination = readResult.termination
+            )
         } catch (_: IOException) {
             return WireExchangeResult(
                 writeCompleted = writeCompleted,
-                responseBytes = output.toByteArray(),
-                failureStage = failureStage
+                responseBytes = ByteArray(0),
+                failureStage = failureStage,
+                termination = WireReadTermination.IO_ERROR
             )
         } finally {
             try { socket?.close() } catch (_: IOException) {}
         }
-        return WireExchangeResult(
-            writeCompleted = true,
-            responseBytes = output.toByteArray()
-        )
     }
 
     /**

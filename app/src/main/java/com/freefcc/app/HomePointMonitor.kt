@@ -38,6 +38,11 @@ internal object HomePointProtocol {
         val senderType = frame[4].toInt() and 0x1F
         val destinationType = frame[5].toInt() and 0x1F
         if (senderType !in setOf(0x03, 0x0E) || destinationType != 0x02) return null
+        // The live-confirmed Avata/O4 Home Point layout is an unencrypted
+        // telemetry push (cmdType=0x00). A response to our probe uses the same
+        // route and command ID but may prepend status bytes, so never parse it
+        // with the fixed push offsets below.
+        if (frame[8] != 0x00.toByte()) return null
         if (frame[9] != 0x03.toByte() || frame[10] != 0x44.toByte()) return null
 
         val payloadLength = frame.size - 13

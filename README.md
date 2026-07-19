@@ -50,6 +50,8 @@ A free and open-source Android app that unlocks FCC mode, sends experimental 4G 
 | FreeFCC App (APK) | [GitHub Releases](https://github.com/danusha2345/FreeFCC/releases) |
 | Helper Apps (zip) | [freefcc.duckdns.org/downloads/freefcc-helpers.zip](https://freefcc.duckdns.org/downloads/freefcc-helpers.zip) |
 
+Release changes are tracked in [CHANGELOG.md](CHANGELOG.md).
+
 For the RC2 SD-card installation below, download both the APK and the helper archive. The archive contains the four sideloading utilities used by the guide.
 
 > The helper APKs are third-party sideloading tools. Their exact upstream

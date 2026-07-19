@@ -22,7 +22,10 @@ class BootReceiver : BroadcastReceiver() {
 
         val prefs = context.getSharedPreferences("freefcc", Context.MODE_PRIVATE)
         if (prefs.getBoolean("auto_fcc", false)) {
-            FccKeepaliveService.start(context)
+            // Some controller builds can reject a background foreground-service
+            // start. Preserve auto_fcc so opening the app can retry, but never
+            // let an OS-delivered BOOT_COMPLETED crash the process.
+            runCatching { FccKeepaliveService.start(context) }
         }
     }
 }

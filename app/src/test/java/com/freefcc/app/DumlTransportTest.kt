@@ -1,5 +1,7 @@
 package com.freefcc.app
 
+import java.io.IOException
+import java.io.InputStream
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -402,7 +404,33 @@ class DumlTransportTest {
         serverError.get()?.let { throw AssertionError("server thread failed", it) }
         assertTrue(exchange.writeCompleted)
         assertNull(exchange.failureStage)
+        assertEquals(WireReadTermination.EOF, exchange.termination)
         assertArrayEquals(response, exchange.responseBytes)
+    }
+
+    @Test
+    fun boundedWireReadRetainsPrefixAndReportsMidStreamIoError() {
+        val prefix = byteArrayOf(0x55, 0x01, 0x02)
+        var readCount = 0
+        val input = object : InputStream() {
+            override fun read(): Int = throw UnsupportedOperationException()
+
+            override fun read(buffer: ByteArray, offset: Int, length: Int): Int {
+                if (readCount++ > 0) throw IOException("connection reset")
+                prefix.copyInto(buffer, offset)
+                return prefix.size
+            }
+        }
+
+        val result = readBoundedWire(
+            input = input,
+            maxBytes = 128,
+            deadlineNanos = System.nanoTime() + 1_000_000_000L,
+            setReadTimeout = {}
+        )
+
+        assertEquals(WireReadTermination.IO_ERROR, result.termination)
+        assertArrayEquals(prefix, result.bytes)
     }
 
     @Test

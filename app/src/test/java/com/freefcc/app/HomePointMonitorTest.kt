@@ -40,6 +40,14 @@ class HomePointMonitorTest {
     }
 
     @Test
+    fun rejectsResponseAndAckRequestWithPushLayoutBytes() {
+        assertEquals(null, HomePointProtocol.isRecorded(homePointFrame(0x0047, cmdType = 0x80)))
+        assertEquals(null, HomePointProtocol.isRecorded(homePointFrame(0x0047, cmdType = 0xC0)))
+        assertEquals(null, HomePointProtocol.isRecorded(homePointFrame(0x0047, cmdType = 0x40)))
+        assertTrue(HomePointProtocol.isRecorded(homePointFrame(0x0047, cmdType = 0x00))!!)
+    }
+
+    @Test
     fun monitorUsesOneConnectionAndStopsAfterRecordedBit() {
         val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         val serverError = AtomicReference<Throwable>()
@@ -97,14 +105,14 @@ class HomePointMonitorTest {
         assertEquals(HomePointWaitResult.STOPPED, result)
     }
 
-    private fun homePointFrame(homeState: Int): ByteArray {
+    private fun homePointFrame(homeState: Int, cmdType: Int = 0x00): ByteArray {
         val payload = ByteArray(102)
         payload[20] = (homeState and 0xFF).toByte()
         payload[21] = ((homeState shr 8) and 0xFF).toByte()
         return DumlBuilder().buildFrame(
             DumlFrame(
                 sender = 0x0E,
-                cmdType = 0x00,
+                cmdType = cmdType,
                 cmdSet = 0x03,
                 cmdId = 0x44,
                 dst = 0x02,

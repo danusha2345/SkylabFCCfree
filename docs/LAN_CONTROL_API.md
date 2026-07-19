@@ -179,10 +179,13 @@ curl -sS -X POST \
 ```
 
 `wire_hex` is required and limited to 4096 bytes; `max_bytes` is limited to
-65536. HTTP `502 send_failed` distinguishes a connect/write failure from a
-completed write with an empty response. An empty HTTP `200` response may mean
-EOF or no bytes before the deadline; raw mode intentionally does not infer a
-protocol-level result.
+65536. Every result includes `termination`: `eof`, `deadline`, `max_bytes`, or
+`io_error`. HTTP `502 send_failed` distinguishes a connect/write failure from a
+completed write with an empty response. If the peer closes the stream with an
+I/O error after returning some bytes, the API returns HTTP `502 read_failed`,
+keeps the bounded partial prefix in `response_hex`, and marks it as truncated.
+An empty HTTP `200` response may mean clean EOF or no bytes before the deadline;
+raw mode intentionally does not infer a protocol-level result.
 
 The same fixed-password/trusted-Wi-Fi warning applies. Ports and byte limits
 remain allowlisted, but these raw endpoints can still carry state-changing DUML

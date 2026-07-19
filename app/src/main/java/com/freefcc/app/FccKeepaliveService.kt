@@ -8,6 +8,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -15,7 +16,18 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.util.concurrent.atomic.AtomicBoolean
+
+internal enum class BootstrapApplyResult {
+    SUCCESS,
+    PRE_WRITE_CONNECT_FAILED,
+    PARTIAL_FAILURE,
+    CANCELLED
+}
+
+internal object BootstrapRetryPolicy {
+    fun shouldRetry(result: BootstrapApplyResult): Boolean =
+        result == BootstrapApplyResult.PRE_WRITE_CONNECT_FAILED
+}
 
 /**
  * Foreground service that waits for the aircraft to record Home Point, applies
@@ -32,25 +44,28 @@ class FccKeepaliveService : Service() {
         const val NOTIFICATION_ID = 9012
         const val ACTION_START = "com.freefcc.app.START_KEEPALIVE"
         const val ACTION_STOP = "com.freefcc.app.STOP_KEEPALIVE"
+        private const val EXTRA_REQUEST_GENERATION = "request_generation"
         private const val RECONNECT_DELAY_MS = 5_000L
+        private const val APPLY_CONNECT_RETRY_DELAY_MS = 5_000L
         private const val PREFS_NAME = "freefcc"
         private const val PREF_KEEPALIVE = "keepalive_running"
-        private val runRequested = AtomicBoolean(false)
+        private val requestGate = AutoFccRequestGate()
 
         @Synchronized
         fun start(context: Context): Boolean {
             val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val hadPersistentRequest = preferences.getBoolean(PREF_KEEPALIVE, false)
+            val request = requestGate.request()
             val intent = Intent(context, FccKeepaliveService::class.java).apply {
                 action = ACTION_START
+                putExtra(EXTRA_REQUEST_GENERATION, request.generation)
             }
-            val wasRequested = runRequested.getAndSet(true)
-            if (!wasRequested) FccRuntime.tracker.serviceStartRequested()
+            if (request.newlyRequested) FccRuntime.tracker.serviceStartRequested()
             try {
                 context.startForegroundService(intent)
             } catch (e: Exception) {
-                runRequested.set(wasRequested)
-                if (!wasRequested) FccRuntime.tracker.serviceFailed(e.message)
+                requestGate.rollbackNewRequest(request)
+                if (request.newlyRequested) FccRuntime.tracker.serviceFailed(e.message)
                 throw e
             }
             // Persist the user's intent only after Android accepted the
@@ -65,7 +80,7 @@ class FccKeepaliveService : Service() {
             // Set this before posting ACTION_STOP. The service intent is
             // asynchronous, while disableFcc() must prevent another keepalive
             // write immediately after its hardware lease is released.
-            runRequested.set(false)
+            requestGate.cancel()
             FccRuntime.tracker.serviceStopped()
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit().putBoolean(PREF_KEEPALIVE, false).apply()
@@ -79,10 +94,18 @@ class FccKeepaliveService : Service() {
         fun isRunningFlagSet(context: Context): Boolean =
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(PREF_KEEPALIVE, false)
+
+        internal fun requiresImmediateForeground(action: String?): Boolean =
+            action != ACTION_STOP
+
+        internal fun deliveredStartGeneration(action: String?, encodedGeneration: Long): Long? =
+            encodedGeneration.takeIf { action == ACTION_START && it > 0L }
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private var keepaliveJob: Job? = null
+    @Volatile private var latestStartId: Int = 0
+    @Volatile private var destroyed = false
     private val transport = DumlTransport()
 
     /** Cached at onCreate — JSON parsing and CRC building do not belong in the worker. */
@@ -96,10 +119,18 @@ class FccKeepaliveService : Service() {
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
-        synchronized(Companion) {
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Every ACTION_START (and sticky null-intent restart) originates from a
+        // foreground-service start contract. Promote before any early exit so
+        // Android never tears down an unpromoted fgRequired service.
+        if (requiresImmediateForeground(intent?.action)) {
+            startForeground(NOTIFICATION_ID, createNotification())
+        }
+        return synchronized(Companion) {
+            latestStartId = maxOf(latestStartId, startId)
             onStartCommandLocked(intent, startId)
         }
+    }
 
     /** Runs under the same monitor as companion start()/stop(). */
     private fun onStartCommandLocked(intent: Intent?, startId: Int): Int {
@@ -108,7 +139,13 @@ class FccKeepaliveService : Service() {
                 // A newer start() may already have superseded this queued
                 // stop intent. The process-wide desired state is updated
                 // synchronously before either intent is posted.
-                if (runRequested.get()) return START_STICKY
+                if (requestGate.currentGeneration() != null) {
+                    // The replacement request cannot run until its own
+                    // ACTION_START is delivered. Cancel the superseded worker
+                    // now and let its completion wait for that delivery.
+                    keepaliveJob?.cancel()
+                    return START_STICKY
+                }
                 keepaliveJob?.cancel()
                 stopForeground(STOP_FOREGROUND_REMOVE)
                 FccRuntime.tracker.serviceStopped()
@@ -119,54 +156,80 @@ class FccKeepaliveService : Service() {
                 if (intent?.action == ACTION_START) {
                     // Ignore an ACTION_START that was queued before a newer
                     // stop(). It must not resurrect the service or pref.
-                    if (!runRequested.get()) {
-                        keepaliveJob?.cancel()
-                        stopForeground(STOP_FOREGROUND_REMOVE)
-                        FccRuntime.tracker.serviceStopped()
-                        stopSelfResult(startId)
-                        return START_NOT_STICKY
+                    val intentGeneration = deliveredStartGeneration(
+                        intent.action,
+                        intent.getLongExtra(EXTRA_REQUEST_GENERATION, -1L)
+                    )
+                    if (intentGeneration == null || !requestGate.markDelivered(intentGeneration)) {
+                        if (requestGate.currentGeneration() != null) {
+                            // A newer request exists, but only its own exact
+                            // ACTION_START may deliver and launch it.
+                            return START_STICKY
+                        }
+                        if (isRunningFlagSet(this)) {
+                            // Android may deliver a pending start in a fresh
+                            // process. The encoded generation belonged to the
+                            // dead process; create and deliver a new local one
+                            // only when the persistent request still exists.
+                            requestGate.markDelivered(requestGate.restoreRequested())
+                        } else {
+                            keepaliveJob?.cancel()
+                            stopForeground(STOP_FOREGROUND_REMOVE)
+                            FccRuntime.tracker.serviceStopped()
+                            stopSelfResult(startId)
+                            return START_NOT_STICKY
+                        }
                     }
                 } else {
                     // Null-intent sticky restart after a process/service kill.
                     // In a new process the persistent flag is the desired state.
                     val requested = isRunningFlagSet(this)
-                    runRequested.set(requested)
+                    if (requested) {
+                        requestGate.markDelivered(requestGate.restoreRequested())
+                    } else {
+                        requestGate.cancel()
+                    }
                     if (!requested) {
                         FccRuntime.tracker.serviceStopped()
+                        stopForeground(STOP_FOREGROUND_REMOVE)
                         stopSelfResult(startId)
                         return START_NOT_STICKY
                     }
                 }
-                if (!runRequested.get()) {
+                if (requestGate.currentGeneration() == null) {
                     FccRuntime.tracker.serviceStopped()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelfResult(startId)
                     return START_NOT_STICKY
                 }
                 // If the profile failed to load, don't become a silent
                 // foreground no-op — stop immediately.
                 if (cachedBootstrapProfile == null) {
-                    runRequested.set(false)
+                    requestGate.cancel()
                     getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                         .edit().putBoolean(PREF_KEEPALIVE, false).apply()
                     FccRuntime.tracker.serviceFailed("FCC profile unavailable")
+                    stopForeground(STOP_FOREGROUND_REMOVE)
                     stopSelfResult(startId)
                     return START_NOT_STICKY
                 }
-                startForeground(NOTIFICATION_ID, createNotification())
-                startKeepaliveLoop()
+                startKeepaliveLoop(startId)
             }
         }
         return START_STICKY
     }
 
-    private fun startKeepaliveLoop() {
-        if (keepaliveJob?.isActive == true) return
-        keepaliveJob = scope.launch {
+    private fun startKeepaliveLoop(startId: Int): Unit = synchronized(Companion) {
+        latestStartId = maxOf(latestStartId, startId)
+        val generation = requestGate.currentDeliveredGeneration() ?: return@synchronized
+        if (keepaliveJob?.isActive == true) return@synchronized
+
+        val worker = scope.launch(start = CoroutineStart.LAZY) {
             val bootstrapProfile = cachedBootstrapProfile ?: return@launch
             val workerJob = currentCoroutineContext()[Job]
             FccRuntime.tracker.serviceRunning()
             var homePointRecorded = false
-            while (runRequested.get() && !homePointRecorded) {
+            while (requestGate.isCurrent(generation) && !homePointRecorded) {
                 if (Port40007Lock.shouldYieldToLed()) {
                     delay(25)
                     continue
@@ -178,7 +241,7 @@ class FccKeepaliveService : Service() {
                 }
                 val waitResult = try {
                     HomePointMonitor().waitUntilRecorded {
-                        runRequested.get() &&
+                        requestGate.isCurrent(generation) &&
                             workerJob?.isActive != false &&
                             !Port40007Lock.shouldYieldToLed()
                     }
@@ -188,50 +251,86 @@ class FccKeepaliveService : Service() {
                 when (waitResult) {
                     HomePointWaitResult.RECORDED -> homePointRecorded = true
                     HomePointWaitResult.STOPPED -> {
-                        if (!runRequested.get() || workerJob?.isActive == false) return@launch
-                        while (runRequested.get() && Port40007Lock.shouldYieldToLed()) {
+                        if (!requestGate.isCurrent(generation) || workerJob?.isActive == false) return@launch
+                        while (requestGate.isCurrent(generation) && Port40007Lock.shouldYieldToLed()) {
                             delay(25)
                         }
                     }
                     HomePointWaitResult.DISCONNECTED -> delay(RECONNECT_DELAY_MS)
                 }
             }
-            if (!runRequested.get() || !homePointRecorded) return@launch
+            if (!requestGate.isCurrent(generation) || !homePointRecorded) return@launch
 
-            var hardwareLease: HardwareLock.Lease? = null
-            while (runRequested.get() && hardwareLease == null) {
-                hardwareLease = HardwareLock.tryBegin()
-                if (hardwareLease == null) delay(200)
+            var finalResult: BootstrapApplyResult? = null
+            while (requestGate.isCurrent(generation) && finalResult == null) {
+                var hardwareLease: HardwareLock.Lease? = null
+                while (requestGate.isCurrent(generation) && hardwareLease == null) {
+                    hardwareLease = HardwareLock.tryBegin()
+                    if (hardwareLease == null) delay(200)
+                }
+                if (!requestGate.isCurrent(generation) || hardwareLease == null) return@launch
+
+                val attempt = try {
+                    sendBootstrapProfile(bootstrapProfile, generation)
+                } catch (e: kotlinx.coroutines.CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    BootstrapApplyResult.PARTIAL_FAILURE
+                } finally {
+                    hardwareLease.close()
+                }
+
+                when {
+                    BootstrapRetryPolicy.shouldRetry(attempt) -> {
+                        // Safe retry: no profile frame was sent.
+                        delay(APPLY_CONNECT_RETRY_DELAY_MS)
+                    }
+                    attempt == BootstrapApplyResult.CANCELLED -> return@launch
+                    else -> finalResult = attempt
+                }
             }
-            if (!runRequested.get() || hardwareLease == null) return@launch
 
-            val written = try {
-                sendBootstrapProfile(bootstrapProfile)?.also {
-                    FccRuntime.tracker.recordWrite(it)
-                } ?: return@launch
-            } catch (e: kotlinx.coroutines.CancellationException) {
-                throw e
-            } catch (_: Exception) {
-                FccRuntime.tracker.recordWrite(false)
-                false
-            } finally {
-                hardwareLease.close()
+            val written = finalResult == BootstrapApplyResult.SUCCESS
+            synchronized(Companion) {
+                // Completion and all terminal side effects are one lifecycle
+                // transaction. A stop/start that creates a newer generation
+                // either happens before this block (and makes complete fail)
+                // or after it (and cannot be torn down by this worker).
+                if (!requestGate.complete(generation)) return@synchronized
+                FccRuntime.tracker.recordWrite(written)
+                getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                    .edit().putBoolean(PREF_KEEPALIVE, false).apply()
+                stopForeground(STOP_FOREGROUND_REMOVE)
+                if (written) FccRuntime.tracker.serviceStopped()
+                else FccRuntime.tracker.serviceFailed("FCC apply failed after Home Point")
+                stopSelfResult(latestStartId)
             }
-
-            runRequested.set(false)
-            getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                .edit().putBoolean(PREF_KEEPALIVE, false).apply()
-            stopForeground(STOP_FOREGROUND_REMOVE)
-            if (written) FccRuntime.tracker.serviceStopped()
-            else FccRuntime.tracker.serviceFailed("FCC apply failed after Home Point")
-            stopSelf()
         }
+        keepaliveJob = worker
+        worker.invokeOnCompletion {
+            scope.launch {
+                synchronized(Companion) {
+                    if (keepaliveJob === worker) {
+                        keepaliveJob = null
+                    }
+                    if (!destroyed && requestGate.currentDeliveredGeneration() != null) {
+                        startKeepaliveLoop(latestStartId)
+                    }
+                }
+            }
+        }
+        worker.start()
     }
 
-    /** Returns null when STOP was requested before the full profile completed. */
-    private suspend fun sendBootstrapProfile(profile: Profiles.Profile): Boolean? {
-        if (!runRequested.get()) return null
-        if (profile.port == DumlTransport.PORT && !transport.connect()) return false
+    /** Retries are allowed only before the first frame; partial profiles are final failures. */
+    private suspend fun sendBootstrapProfile(
+        profile: Profiles.Profile,
+        generation: Long
+    ): BootstrapApplyResult {
+        if (!requestGate.isCurrent(generation)) return BootstrapApplyResult.CANCELLED
+        if (profile.port == DumlTransport.PORT && !transport.connect()) {
+            return BootstrapApplyResult.PRE_WRITE_CONNECT_FAILED
+        }
         val port = if (profile.port == DumlTransport.PORT) {
             transport.getDetectedPort().takeIf { it > 0 } ?: DumlTransport.PORT
         } else {
@@ -241,11 +340,11 @@ class FccKeepaliveService : Service() {
         var allSuccess = true
         for (round in 0 until profile.rounds) {
             for ((frameIndex, frame) in profile.frames.withIndex()) {
-                if (!runRequested.get()) return null
+                if (!requestGate.isCurrent(generation)) return BootstrapApplyResult.CANCELLED
                 if (!transport.sendFrame(frame, profile.readWindowMs, port)) {
                     allSuccess = false
                 }
-                if (!runRequested.get()) return null
+                if (!requestGate.isCurrent(generation)) return BootstrapApplyResult.CANCELLED
                 if (profile.interFrameDelay > 0 && frameIndex < profile.frames.lastIndex) {
                     delay(profile.interFrameDelay)
                 }
@@ -254,7 +353,7 @@ class FccKeepaliveService : Service() {
                 delay(profile.interRoundDelay)
             }
         }
-        return allSuccess
+        return if (allSuccess) BootstrapApplyResult.SUCCESS else BootstrapApplyResult.PARTIAL_FAILURE
     }
 
     private fun createNotificationChannel() {
@@ -289,6 +388,7 @@ class FccKeepaliveService : Service() {
     }
 
     override fun onDestroy() {
+        destroyed = true
         keepaliveJob?.cancel()
         scope.cancel()
         if (FccRuntime.tracker.state.value.keepaliveStatus != KeepaliveRuntimeStatus.FAILED) {
