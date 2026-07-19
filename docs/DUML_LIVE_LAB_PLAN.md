@@ -2,12 +2,28 @@
 
 Дата: 2026-07-19.
 
-Статус: FreeFCC `1.5.13` установлен и проверен на RC2. LAN API, UDP discovery,
-incremental parser и exact `wire_exchange` работают. Live-проверка выявила
-новый дефект: восстановленный четырёхкадровый keepalive успешно писал TCP, но
-не переводил радио из CE; ручной полный `Re-apply` (21 frame × 2 rounds) реально
-включил FCC. Draft `1.5.14` сначала выполняет полный bootstrap и только после
-его успешной записи переходит на лёгкий повторяющийся профиль.
+Статус: FreeFCC `1.5.14` установлен и проверен на RC2. LAN API, UDP discovery,
+incremental parser и exact `wire_exchange` работают. Live-проверка `1.5.13`
+выявила, что восстановленный четырёхкадровый keepalive успешно писал TCP, но не
+переводил радио из CE; ручной полный `Re-apply` (21 frame × 2 rounds) реально
+включал FCC. В `1.5.14` service сначала выполняет полный bootstrap и только
+после его успешной записи переходит на лёгкий повторяющийся профиль. Пользователь
+физически подтвердил FCC в текущей сессии; cold boot и outdoor-проверка пока не
+выполнены.
+
+## Release evidence `1.5.14`
+
+| Проверка | Результат |
+|---|---|
+| Main | `0292426f7c2af6df5b20ab5af51830bc560e9ef4` запушен в `origin/main` |
+| Build | 50 JVM tests, `lintDebug` и `assembleRelease` завершены успешно |
+| APK metadata | package `com.freefcc.app`, versionCode `31`, versionName `1.5.14`, APK Signature Scheme v3 |
+| Совместимость подписи | Certificate SHA-256 совпадает с предыдущим установленным релизом: `1e50efc760a23d71f5ec57f855af4b8c42c21fea6da9122889d59b3b23b890ce` |
+| Release artifact | `FreeFCC-1.5.14.apk`, SHA-256 `76749a6984df562c6d61882f4b465c053867d72bba18e7c880faa4a147df39e2` |
+| Release | <https://github.com/danusha2345/FreeFCC/releases/tag/v1.5.14> |
+| RC2 update | In-app updater скачал APK, Android installer выполнил обновление, LAN bridge после запуска сообщил `app_version=1.5.14` |
+| FCC runtime | Полный bootstrap завершён, затем timestamp лёгкого keepalive обновлялся примерно каждые 2,23 s; пользователь физически подтвердил FCC |
+| Осталось проверить | Полное выключение/включение пульта и дрона; затем outdoor-проверка Transmission graph/реального radio behavior |
 
 ## Release evidence `1.5.13`
 
