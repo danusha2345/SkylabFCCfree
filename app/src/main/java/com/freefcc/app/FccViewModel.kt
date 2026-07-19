@@ -97,7 +97,7 @@ private class LanWriteLease(
 class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     companion object {
-        const val APP_VERSION = "1.5.16"
+        const val APP_VERSION = "1.5.17"
 
         private const val MAX_LOG_ENTRIES = 200
         private val processLogLock = Any()
@@ -226,8 +226,13 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         isKeepaliveRunning = keepaliveActive,
                         isFccEnabled = hasWriteEvidence,
                         fccLastWriteAtMs = runtime.lastSuccessfulWriteAtMs,
+                        message = if (
+                            runtime.keepaliveStatus == KeepaliveRuntimeStatus.FAILED &&
+                            runtime.error != null
+                        ) runtime.error else message,
                         status = when {
                             status == "applying" || status == "restoring" -> status
+                            runtime.keepaliveStatus == KeepaliveRuntimeStatus.FAILED && isConnected -> "connected"
                             hasWriteEvidence && isConnected -> "fcc_written"
                             !hasWriteEvidence && status == "fcc_written" && isConnected -> "connected"
                             else -> status
@@ -266,33 +271,31 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         // v1.5.12 and earlier persisted a write as if it were current FCC
         // state. Ignore and remove that stale cross-process evidence.
         prefs.edit().remove("fcc_sequence_written").apply()
-        // Restore an in-progress Home Point wait after process recreation.
+        // `auto_fcc` is durable user intent. The keepalive flag is only an
+        // in-flight marker and must never resurrect Auto-FCC by itself.
         val keepaliveRequested = FccKeepaliveService.isRunningFlagSet(app)
+        val recoveryAction = PersistentAutoFccRecoveryPolicy.resolve(
+            autoEnabled = autoEnabled,
+            inFlightMarker = keepaliveRequested
+        )
+        if (recoveryAction == PersistentAutoFccRecoveryAction.CLEAR_STALE) {
+            runCatching { FccKeepaliveService.stop(app) }
+                .onSuccess { log("Cleared stale Home Point monitor while Auto-FCC is off") }
+                .onFailure { log("Could not clear stale Home Point monitor: ${it.message}") }
+        }
+        val effectiveKeepaliveRequested = autoEnabled && keepaliveRequested
         val runtime = FccRuntime.tracker.state.value
         update {
             copy(
                 controllerModel = model,
                 status = "disconnected",
                 autoFcc = autoEnabled,
-                isKeepaliveRunning = keepaliveRequested,
+                isKeepaliveRunning = effectiveKeepaliveRequested,
                 isFccEnabled = runtime.lastSuccessfulWriteAtMs != null,
                 fccLastWriteAtMs = runtime.lastSuccessfulWriteAtMs
             )
         }
         log("FreeFCC v$APP_VERSION started on $model")
-
-        // The SharedPreferences flag records an in-progress wait, not proof that
-        // the service survived Activity/process recreation. Re-send ACTION_START.
-        if (keepaliveRequested) {
-            try {
-                FccKeepaliveService.start(app)
-                log("Home Point monitor requested state restored")
-            } catch (e: Exception) {
-                // Keep an existing persistent user request so a later
-                // foreground retry can restore the service.
-                log("Home Point monitor restore failed: ${e.message}")
-            }
-        }
 
         if (prefs.getBoolean("lan_log_enabled", true)) {
             setLanLoggingEnabled(true)
@@ -460,7 +463,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 update { copy(status = "connecting", message = "Auto-connecting...") }
                 try {
                     if (!transport.connect()) {
-                        log("Auto-FCC: UI probe did not find the controller; Home Point monitor will keep reconnecting")
+                        log("Auto-FCC: UI probe did not find the controller; Home Point monitor keeps its bounded startup attempts")
                         update {
                             copy(
                                 status = "disconnected",
@@ -501,8 +504,9 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 log("Auto-FCC: launching DJI Fly")
                 launchDjiFly()
                 refreshLedStateAfterStartup()
-                update { copy(message = "Waiting for Home Point in DJI Fly...") }
-                log("Auto-FCC: listening for Home Point on one persistent connection")
+                // Do not write another non-terminal UI message here: the
+                // service may already have published a terminal monitor error.
+                log("Auto-FCC: UI startup flow completed; service owns Home Point status")
             } catch (_: CancellationException) {
                 // The foreground monitor intentionally outlives this ViewModel
                 // and is stopped synchronously by toggleAutoFcc(false).
@@ -611,8 +615,8 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             log("Hardware busy — please wait for the current operation to finish.")
             return false
         }
-        update { copy(status = "applying", isBusy = true, busyProgress = 0f, message = "Enabling FCC mode...") }
-        log("Enabling FCC mode...")
+        update { copy(status = "applying", isBusy = true, busyProgress = 0f, message = "Sending FCC request...") }
+        log("Sending FCC request...")
 
         runOnIO {
             try {
@@ -633,7 +637,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     update {
                         copy(
                             status = "fcc_written",
-                            message = "FCC sequence written — verify the region in DJI Fly",
+                            message = "FCC request written — RF mode unknown; verify in DJI Fly",
                             isFccEnabled = true,
                             isBusy = false,
                             busyProgress = 1f,
@@ -674,8 +678,8 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         if (_state.value.isKeepaliveRunning || FccKeepaliveService.isRunningFlagSet(app)) {
             stopKeepalive()
         }
-        update { copy(status = "restoring", isBusy = true, busyProgress = 0f, message = "Restoring CE mode...") }
-        log("Restoring CE mode...")
+        update { copy(status = "restoring", isBusy = true, busyProgress = 0f, message = "Sending CE restore request...") }
+        log("Sending CE restore request...")
 
         runOnIO {
             try {

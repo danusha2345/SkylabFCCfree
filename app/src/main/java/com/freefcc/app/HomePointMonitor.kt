@@ -7,8 +7,27 @@ import java.net.SocketTimeoutException
 
 internal enum class HomePointWaitResult {
     RECORDED,
-    DISCONNECTED,
+    CONNECT_FAILED,
+    STREAM_DISCONNECTED,
     STOPPED
+}
+
+/** Requires a fresh unrecorded -> recorded edge for the current request. */
+internal class HomePointSessionGate {
+    private var armed = false
+    private var triggered = false
+
+    @Synchronized
+    fun observe(recorded: Boolean): Boolean {
+        if (triggered) return false
+        if (!recorded) {
+            armed = true
+            return false
+        }
+        if (!armed) return false
+        triggered = true
+        return true
+    }
 }
 
 internal object HomePointProtocol {
@@ -124,11 +143,16 @@ internal class HomePointMonitor(
     private val host: String = "127.0.0.1",
     private val port: Int = DumlTransport.PORT_LED
 ) {
-    fun waitUntilRecorded(shouldContinue: () -> Boolean): HomePointWaitResult {
+    fun waitUntilRecorded(
+        sessionGate: HomePointSessionGate = HomePointSessionGate(),
+        shouldContinue: () -> Boolean
+    ): HomePointWaitResult {
         var socket: Socket? = null
+        var connected = false
         return try {
             socket = Socket()
             socket.connect(InetSocketAddress(host, port), 2_000)
+            connected = true
             socket.tcpNoDelay = true
             socket.soTimeout = 250
 
@@ -146,16 +170,23 @@ internal class HomePointMonitor(
                 } catch (_: SocketTimeoutException) {
                     continue
                 }
-                if (count <= 0) return HomePointWaitResult.DISCONNECTED
+                if (count <= 0) return HomePointWaitResult.STREAM_DISCONNECTED
                 for (frame in parser.feed(buffer, count)) {
-                    if (HomePointProtocol.isRecorded(frame) == true) {
+                    val recorded = HomePointProtocol.isRecorded(frame) ?: continue
+                    if (sessionGate.observe(recorded)) {
                         return HomePointWaitResult.RECORDED
                     }
                 }
             }
             HomePointWaitResult.STOPPED
         } catch (_: IOException) {
-            if (shouldContinue()) HomePointWaitResult.DISCONNECTED else HomePointWaitResult.STOPPED
+            if (!shouldContinue()) {
+                HomePointWaitResult.STOPPED
+            } else if (connected) {
+                HomePointWaitResult.STREAM_DISCONNECTED
+            } else {
+                HomePointWaitResult.CONNECT_FAILED
+            }
         } finally {
             try { socket?.close() } catch (_: IOException) {}
         }

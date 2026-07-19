@@ -11,6 +11,18 @@ import org.junit.Test
 
 class HomePointMonitorTest {
     @Test
+    fun recordedSnapshotRequiresResetAndRisingEdge() {
+        val gate = HomePointSessionGate()
+
+        assertFalse(gate.observe(true))
+        assertFalse(gate.observe(true))
+        assertFalse(gate.observe(false))
+        assertFalse(gate.observe(false))
+        assertTrue(gate.observe(true))
+        assertFalse(gate.observe(true))
+    }
+
+    @Test
     fun detectsRecordedBitInFragmentedWrappedStream() {
         val before = homePointFrame(0x0046)
         val after = homePointFrame(0x0047)
@@ -78,6 +90,78 @@ class HomePointMonitorTest {
         thread.join(2_000)
         serverError.get()?.let { throw AssertionError("server failed", it) }
         assertEquals(HomePointWaitResult.RECORDED, result)
+    }
+
+    @Test
+    fun initialRecordedSnapshotThenEofDoesNotCompleteWait() {
+        val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val serverError = AtomicReference<Throwable>()
+        val thread = Thread {
+            try {
+                server.use { listener ->
+                    listener.accept().use { socket ->
+                        socket.getInputStream().read(ByteArray(128))
+                        socket.getOutputStream().apply {
+                            write(Profiles.wrapFrame(homePointFrame(0x0047)))
+                            flush()
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                serverError.set(t)
+            }
+        }
+        thread.start()
+
+        val result = HomePointMonitor(port = server.localPort).waitUntilRecorded { true }
+
+        thread.join(2_000)
+        serverError.get()?.let { throw AssertionError("server failed", it) }
+        assertEquals(HomePointWaitResult.STREAM_DISCONNECTED, result)
+    }
+
+    @Test
+    fun sessionGateSurvivesCooperativeReopenAndRequiresFreshEdge() {
+        val firstServer = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val firstThread = Thread {
+            firstServer.use { listener ->
+                listener.accept().use { socket ->
+                    socket.getInputStream().read(ByteArray(128))
+                    socket.getOutputStream().apply {
+                        write(Profiles.wrapFrame(homePointFrame(0x0047)))
+                        flush()
+                    }
+                }
+            }
+        }
+        firstThread.start()
+        val gate = HomePointSessionGate()
+        var continuationChecks = 0
+
+        val firstResult = HomePointMonitor(port = firstServer.localPort)
+            .waitUntilRecorded(gate) { ++continuationChecks == 1 }
+        firstThread.join(2_000)
+        assertEquals(HomePointWaitResult.STOPPED, firstResult)
+
+        val secondServer = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val secondThread = Thread {
+            secondServer.use { listener ->
+                listener.accept().use { socket ->
+                    socket.getInputStream().read(ByteArray(128))
+                    socket.getOutputStream().apply {
+                        write(Profiles.wrapFrame(homePointFrame(0x0046)))
+                        write(Profiles.wrapFrame(homePointFrame(0x0047)))
+                        flush()
+                    }
+                }
+            }
+        }
+        secondThread.start()
+
+        val secondResult = HomePointMonitor(port = secondServer.localPort)
+            .waitUntilRecorded(gate) { true }
+        secondThread.join(2_000)
+        assertEquals(HomePointWaitResult.RECORDED, secondResult)
     }
 
     @Test

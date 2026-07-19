@@ -166,6 +166,7 @@ private fun AppRoot(viewModel: FccViewModel) {
 @Composable
 private fun FccPage(state: AppState, viewModel: FccViewModel) {
     val updateInfo = state.updateInfo
+    val fccPresentation = fccUiPresentation(state.isFccEnabled)
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -222,11 +223,11 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                     GlowButton("Connect", Cyan, enabled = !state.isHardwareBusy) { viewModel.connect() }
                 }
                 state.isFccEnabled -> {
-                    BodyText("FCC sequence was written. Verify the region in DJI Fly.", Green)
+                    BodyText("FCC request was written. RF mode is unknown; verify in DJI Fly.", Amber)
                     Spacer(Modifier.height(8.dp))
-                    GlowButton("Stop FCC Mode", Red, enabled = !state.isHardwareBusy) { viewModel.disableFcc() }
+                    GlowButton(fccPresentation.primaryActionLabel, Red, enabled = !state.isHardwareBusy) { viewModel.disableFcc() }
                     Spacer(Modifier.height(8.dp))
-                    GlowButton("Re-Apply FCC", Cyan, filled = false, enabled = !state.isHardwareBusy) { viewModel.enableFcc() }
+                    GlowButton("Re-Send FCC Request", Cyan, filled = false, enabled = !state.isHardwareBusy) { viewModel.enableFcc() }
                     Spacer(Modifier.height(8.dp))
                     GlowButton("Launch DJI Fly", Green, filled = false, enabled = !state.isHardwareBusy) {
                         viewModel.launchDjiFly()
@@ -237,10 +238,10 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                         BodyText(state.message)
                         Spacer(Modifier.height(12.dp))
                     } else {
-                        BodyText("Tap the button below to enable FCC mode.")
+                        BodyText("Send the FCC request, then verify RF mode in DJI Fly.")
                         Spacer(Modifier.height(12.dp))
                     }
-                    GlowButton("Enable FCC Mode", Cyan, enabled = !state.isHardwareBusy) { viewModel.enableFcc() }
+                    GlowButton(fccPresentation.primaryActionLabel, Cyan, enabled = !state.isHardwareBusy) { viewModel.enableFcc() }
                 }
             }
 
@@ -1019,6 +1020,7 @@ private fun PageTitle(title: String, icon: androidx.compose.ui.graphics.vector.I
 @Composable
 private fun ModeBadge(state: AppState) {
     val active = state.isFccEnabled
+    val presentation = fccUiPresentation(active)
     val bgBrush = if (active) {
         Brush.horizontalGradient(listOf(Color(0xFF2A1A10), Color(0xFF3A2113), Color(0xFF2A1A10)))
     } else {
@@ -1053,15 +1055,15 @@ private fun ModeBadge(state: AppState) {
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                if (active) "FCC SENT" else "DEFAULT",
-                color = if (active) Green else TextWhite,
+                presentation.badgeTitle,
+                color = if (active) Amber else TextWhite,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.Black
             )
             Spacer(Modifier.weight(1f))
             if (active) {
                 Icon(
-                    Icons.Filled.CheckCircle, null, tint = Green,
+                    Icons.Outlined.Info, null, tint = Amber,
                     modifier = Modifier.size(24.dp).scale(checkScale.value)
                 )
             } else {
@@ -1073,8 +1075,8 @@ private fun ModeBadge(state: AppState) {
         }
         Spacer(Modifier.height(2.dp))
         Text(
-            if (active) "Verify in DJI Fly" else "No FCC request active",
-            color = if (active) Green.copy(0.7f) else TextGray,
+            presentation.detail,
+            color = if (active) Amber.copy(0.8f) else TextGray,
             fontSize = 10.sp,
             maxLines = 1
         )

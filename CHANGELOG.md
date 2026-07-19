@@ -1,5 +1,22 @@
 # История изменений
 
+## 1.5.17 — 2026-07-19
+
+- `keepalive_running` больше не запускает Home Point monitor, если
+  пользовательский toggle `auto_fcc` выключен. Устаревший marker очищается при
+  входе в приложение и при sticky restart сервиса.
+- Home Point принимается только как свежий переход `not recorded → recorded`
+  текущего запроса. Начальный snapshot `recorded=true` больше не запускает FCC.
+- Неожиданный разрыв установленного `40007` stream завершает monitor
+  fail-closed. Бесконечного reconnect-цикла больше нет; только initial connect
+  имеет одну медленную повторную попытку.
+- Listener запускается сразу, чтобы не потерять быстрый Home Point; один session
+  gate сохраняется при контролируемой уступке порта LED/serial probe.
+- UI больше не называет TCP-write подтверждённым FCC и не утверждает `DEFAULT`
+  без readback: отображаются `FCC REQUEST SENT` либо `RF MODE UNKNOWN`.
+- Terminal error Home Point monitor больше не затирается поздним
+  startup-сообщением.
+
 ## 1.5.16 — 2026-07-19
 
 - Auto-FCC ждёт подтверждённый Home Point в одном долгоживущем `40007`

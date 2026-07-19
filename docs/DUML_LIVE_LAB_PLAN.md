@@ -2,7 +2,7 @@
 
 Дата: 2026-07-19.
 
-Статус: FreeFCC `1.5.14` установлен и проверен на RC2. LAN API, UDP discovery,
+Статус: FreeFCC `1.5.16` установлен и проверен на RC2. LAN API, UDP discovery,
 incremental parser и exact `wire_exchange` работают. Live-проверка `1.5.13`
 выявила, что восстановленный четырёхкадровый keepalive успешно писал TCP, но не
 переводил радио из CE; ручной полный `Re-apply` (21 frame × 2 rounds) реально
@@ -24,8 +24,16 @@ service выполняет полный `fcc.json` и останавливает
 старому worker завершить новый запрос или стартовать его до доставки
 `ACTION_START`; повтор разрешён только при отдельном preflight connect failure,
 до входа в frame loop. Startup LED read имеет максимум одну повторную попытку
-только при port contention до wire exchange. Проверка listener, update flow и
-FCC persistence на RC2 остаётся PENDING до публикации APK.
+только при port contention до wire exchange.
+
+Live-проверка `1.5.16` выявила: stale `keepalive_running` восстанавливал monitor
+даже при `auto_fcc=false`, а повторное открытие `40007` после разрыва каждые
+несколько секунд рвало aircraft/controller link. UI одновременно показывал
+write evidence как будто это подтверждённый FCC, хотя пользователь физически
+видел CE. В `1.5.17` persistent recovery требует оба флага, Home Point требует
+свежий `false → true`, established disconnect завершается fail-closed, а UI
+явно оставляет RF mode неизвестным. Повторная RC2-проверка остаётся PENDING до
+установки `1.5.17`.
 
 Полный inventory transports, command frequencies, payload evidence и privacy
 границы: [DUML_STREAM_MAP.md](DUML_STREAM_MAP.md).
@@ -105,6 +113,15 @@ keepalive/`BootReceiver`. После Home Point она может восстан
 | RC2 update | PENDING: ADB device отсутствует, прежний `192.168.1.139:8787` недоступен, UDP beacon за 15 s не получен |
 | Auto-FCC runtime | PENDING: exact Home Point transition, один full apply, listener/service остановлены без повторных writes |
 | LED runtime | PENDING: один startup read, readback после ON/OFF, без polling |
+
+### Live regression `1.5.16`, исправляемая в `1.5.17`
+
+| Время / среда | Наблюдение | Вывод |
+|---|---|---|
+| 2026-07-19 21:46–21:52 MSK, Avata 360 + RC2 `rc331` | При `auto_fcc=false` приложение восстановило `Home Point monitor requested state`; связь с aircraft каждые несколько секунд пропадала и возвращалась | Stale `keepalive_running` ошибочно считался durable intent, а reconnect loop на `40007` физически мешал каналу |
+| Та же сессия | После завершения monitor периодические обрывы прекратились | Causal связь с monitor/reconnect подтверждена пользователем |
+| Та же сессия | `/api/status`: `fcc_sequence_written=true`, `fcc_enabled=null`; UI сообщал FCC write, но пользователь физически видел CE | TCP write evidence не является readback фактического RF mode |
+| Hotfix `1.5.17` | Recovery только при `auto_fcc && keepalive_running`; stale marker очищается; initial true игнорируется до свежего false→true; established disconnect fail-closed | PENDING live retest после in-app update |
 
 ## Release evidence `1.5.14`
 

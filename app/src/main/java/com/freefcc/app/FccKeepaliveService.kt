@@ -45,9 +45,11 @@ class FccKeepaliveService : Service() {
         const val ACTION_START = "com.freefcc.app.START_KEEPALIVE"
         const val ACTION_STOP = "com.freefcc.app.STOP_KEEPALIVE"
         private const val EXTRA_REQUEST_GENERATION = "request_generation"
-        private const val RECONNECT_DELAY_MS = 5_000L
+        private const val INITIAL_CONNECT_RETRY_DELAY_MS = 15_000L
+        private const val MAX_INITIAL_CONNECT_ATTEMPTS = 2
         private const val APPLY_CONNECT_RETRY_DELAY_MS = 5_000L
         private const val PREFS_NAME = "freefcc"
+        private const val PREF_AUTO_FCC = "auto_fcc"
         private const val PREF_KEEPALIVE = "keepalive_running"
         private val requestGate = AutoFccRequestGate()
 
@@ -94,6 +96,14 @@ class FccKeepaliveService : Service() {
         fun isRunningFlagSet(context: Context): Boolean =
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(PREF_KEEPALIVE, false)
+
+        internal fun isPersistentAutoRequest(context: Context): Boolean {
+            val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            return PersistentAutoFccRecoveryPolicy.shouldRestoreService(
+                autoEnabled = preferences.getBoolean(PREF_AUTO_FCC, false),
+                inFlightMarker = preferences.getBoolean(PREF_KEEPALIVE, false)
+            )
+        }
 
         internal fun requiresImmediateForeground(action: String?): Boolean =
             action != ACTION_STOP
@@ -166,7 +176,7 @@ class FccKeepaliveService : Service() {
                             // ACTION_START may deliver and launch it.
                             return START_STICKY
                         }
-                        if (isRunningFlagSet(this)) {
+                        if (isPersistentAutoRequest(this)) {
                             // Android may deliver a pending start in a fresh
                             // process. The encoded generation belonged to the
                             // dead process; create and deliver a new local one
@@ -174,6 +184,8 @@ class FccKeepaliveService : Service() {
                             requestGate.markDelivered(requestGate.restoreRequested())
                         } else {
                             keepaliveJob?.cancel()
+                            getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                                .edit().putBoolean(PREF_KEEPALIVE, false).apply()
                             stopForeground(STOP_FOREGROUND_REMOVE)
                             FccRuntime.tracker.serviceStopped()
                             stopSelfResult(startId)
@@ -183,13 +195,15 @@ class FccKeepaliveService : Service() {
                 } else {
                     // Null-intent sticky restart after a process/service kill.
                     // In a new process the persistent flag is the desired state.
-                    val requested = isRunningFlagSet(this)
+                    val requested = isPersistentAutoRequest(this)
                     if (requested) {
                         requestGate.markDelivered(requestGate.restoreRequested())
                     } else {
                         requestGate.cancel()
                     }
                     if (!requested) {
+                        getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                            .edit().putBoolean(PREF_KEEPALIVE, false).apply()
                         FccRuntime.tracker.serviceStopped()
                         stopForeground(STOP_FOREGROUND_REMOVE)
                         stopSelfResult(startId)
@@ -228,7 +242,10 @@ class FccKeepaliveService : Service() {
             val bootstrapProfile = cachedBootstrapProfile ?: return@launch
             val workerJob = currentCoroutineContext()[Job]
             FccRuntime.tracker.serviceRunning()
+            val homePointSession = HomePointSessionGate()
             var homePointRecorded = false
+            var initialConnectAttempts = 0
+            var monitorFailure: String? = null
             while (requestGate.isCurrent(generation) && !homePointRecorded) {
                 if (Port40007Lock.shouldYieldToLed()) {
                     delay(25)
@@ -240,7 +257,7 @@ class FccKeepaliveService : Service() {
                     continue
                 }
                 val waitResult = try {
-                    HomePointMonitor().waitUntilRecorded {
+                    HomePointMonitor().waitUntilRecorded(homePointSession) {
                         requestGate.isCurrent(generation) &&
                             workerJob?.isActive != false &&
                             !Port40007Lock.shouldYieldToLed()
@@ -248,18 +265,49 @@ class FccKeepaliveService : Service() {
                 } finally {
                     portLease.close()
                 }
-                when (waitResult) {
-                    HomePointWaitResult.RECORDED -> homePointRecorded = true
-                    HomePointWaitResult.STOPPED -> {
+                if (waitResult == HomePointWaitResult.CONNECT_FAILED) {
+                    initialConnectAttempts++
+                }
+                when (HomePointRetryPolicy.decide(
+                    result = waitResult,
+                    initialConnectAttempts = initialConnectAttempts,
+                    maxInitialConnectAttempts = MAX_INITIAL_CONNECT_ATTEMPTS
+                )) {
+                    HomePointWaitDecision.RECORDED -> homePointRecorded = true
+                    HomePointWaitDecision.RETRY_INITIAL_CONNECT -> {
+                        delay(INITIAL_CONNECT_RETRY_DELAY_MS)
+                    }
+                    HomePointWaitDecision.FAIL_CLOSED -> {
+                        // Reopening an established 40007 stream repeatedly was
+                        // proven to disrupt the aircraft/controller link.
+                        monitorFailure = if (waitResult == HomePointWaitResult.STREAM_DISCONNECTED) {
+                            "Home Point stream disconnected; toggle Auto-FCC to retry"
+                        } else {
+                            "Home Point stream unavailable; toggle Auto-FCC to retry"
+                        }
+                        break
+                    }
+                    HomePointWaitDecision.COOPERATIVE_STOP -> {
                         if (!requestGate.isCurrent(generation) || workerJob?.isActive == false) return@launch
                         while (requestGate.isCurrent(generation) && Port40007Lock.shouldYieldToLed()) {
                             delay(25)
                         }
                     }
-                    HomePointWaitResult.DISCONNECTED -> delay(RECONNECT_DELAY_MS)
                 }
             }
-            if (!requestGate.isCurrent(generation) || !homePointRecorded) return@launch
+            if (!requestGate.isCurrent(generation)) return@launch
+            if (!homePointRecorded) {
+                val failure = monitorFailure ?: "Home Point monitor stopped"
+                synchronized(Companion) {
+                    if (!requestGate.complete(generation)) return@synchronized
+                    getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .edit().putBoolean(PREF_KEEPALIVE, false).apply()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    FccRuntime.tracker.serviceFailed(failure)
+                    stopSelfResult(latestStartId)
+                }
+                return@launch
+            }
 
             var finalResult: BootstrapApplyResult? = null
             while (requestGate.isCurrent(generation) && finalResult == null) {

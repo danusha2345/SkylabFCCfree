@@ -80,9 +80,12 @@ The captured 4G profile is experimental and was derived from systems using exter
 
 Validated upstream on DJI RC2 firmware v10.00.0700; this fork was additionally exercised live on RC2 `rc331`. Future firmware can change the local proxy or DUML routing, so compatibility must be rechecked rather than assumed.
 
-The former two-second FCC keepalive is no longer used. Auto-FCC now holds one
-port-`40007` listener only until a CRC-valid `03:44` frame reports Home Point,
-then closes it and performs one complete FCC apply.
+The former two-second FCC keepalive is no longer used. Auto-FCC holds one
+port-`40007` listener until a CRC-valid `03:44` stream shows a fresh
+`not recorded → recorded` Home Point transition, then closes it and performs
+one complete FCC apply. An unexpected established-stream disconnect stops the
+monitor instead of opening a disruptive reconnect loop; toggle Auto-FCC to
+start a new session.
 
 If you test it on a model or firmware version not listed here, please [open an issue](https://github.com/danusha2345/FreeFCC/issues) and let me know.
 
@@ -131,10 +134,10 @@ Swipe from the right edge to open ATV Launcher. Open the Files app, find your fo
 
 1. Power on the drone and link it to the controller
 2. Open FreeFCC and tap **Connect**
-3. For automatic operation, enable **Auto-FCC**. It opens DJI Fly, waits for Home Point, then applies FCC once. Manual **Enable FCC Mode** remains available for testing or recovery.
+3. For automatic operation, enable **Auto-FCC** before Home Point is recorded. It opens DJI Fly, waits for a fresh Home Point transition, then sends the full FCC profile once. Manual **Send FCC Request** remains available for testing or recovery after Home Point.
 4. For 4G diagnostics, tap **Probe 4G Endpoint** first. This is read-only and only checks whether `/duss/mb/0x205` is reachable. **Send 4G Activation Frames** remains experimental and confirms writes only, not activation.
    > **Note:** The integrated eSIM path on DJI Avata 360 is not yet proven compatible with the captured external-module profile. Please attach the LAN logs to an [issue](https://github.com/danusha2345/FreeFCC/issues) when testing.
-5. To stop: tap **Stop FCC Mode** to restore CE
+5. To request CE restore, tap **Send CE Restore**. The app confirms transport writes only; verify the actual RF mode in DJI Fly.
 6. The LED card reads state once after connection and verifies it after **LED ON** or **LED OFF**. Use refresh for one additional on-demand read.
 7. The **Info** tab lets you query the controller's hardware and firmware version
 8. The **Log** tab starts the LAN diagnostic API by default. It uses unencrypted HTTP and a fixed shared password. A UDP beacon broadcasts only the controller IP and port across the current Wi-Fi subnet; it does not include the password, logs, or command payloads. Disable the bridge on untrusted Wi-Fi. See [LAN Control API](docs/LAN_CONTROL_API.md).
