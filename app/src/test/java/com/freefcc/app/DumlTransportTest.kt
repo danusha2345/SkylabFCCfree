@@ -58,9 +58,17 @@ class DumlTransportTest {
     fun oneSuccessfulWriteDoesNotMakeWholeProfileSuccessful() {
         val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         val serverThread = Thread {
-            server.use {
-                it.accept().use { socket ->
+            server.accept().use { socket ->
+                // Close the listener before the first write completes. Keeping
+                // the accepted socket open through the client's read window
+                // makes the second connect deterministically fail instead of
+                // racing the kernel listen backlog.
+                server.close()
+                try {
                     socket.getInputStream().read(ByteArray(64))
+                    Thread.sleep(50)
+                } catch (_: InterruptedException) {
+                    Thread.currentThread().interrupt()
                 }
             }
         }

@@ -1,5 +1,22 @@
 # История изменений
 
+## 1.5.18 — 2026-07-19
+
+- После подтверждённого `Home Point=false` Auto-FCC может один раз восстановить
+  разорванный `40007` stream, сохраняя тот же session gate. Это закрывает live
+  случай, когда broker разорвал stream около перехода Home Point и `1.5.17` не
+  отправил FCC.
+- Recovery budget расходуется до переподключения: второй disconnect либо
+  `CONNECT_FAILED` после него завершается fail-closed без третьего socket open.
+- Initial `recorded=true` по-прежнему не принимается без ранее увиденного
+  `false`; unarmed disconnect не переподключается.
+- EOF во время контролируемой уступки порта LED/serial теперь считается
+  cooperative stop и не расходует reconnect budget.
+- Выключение Auto-FCC сразу очищает terminal-сообщение в UI. Persistent toggle
+  остаётся durable autostart-настройкой; повторный вход в FreeFCC является
+  явной новой попыткой после terminal failure.
+- Устранена гонка старого loopback-теста частичной отправки профиля.
+
 ## 1.5.17 — 2026-07-19
 
 - `keepalive_running` больше не запускает Home Point monitor, если

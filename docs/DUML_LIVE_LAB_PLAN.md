@@ -51,6 +51,15 @@ write evidence как будто это подтверждённый FCC, хот
 | RC2 update | PENDING: controller не виден через ADB, прежний LAN endpoint `192.168.1.139:8787` недоступен; требуется обновление кнопкой в приложении |
 | Auto-FCC runtime | PENDING: Auto-FCC OFF re-entry без monitor/link drops; затем fresh Home Point transition, один full apply и остановка listener |
 
+### Live Auto-FCC retest `1.5.17`
+
+| Время / среда | Наблюдение | Вывод |
+|---|---|---|
+| 2026-07-19 22:38–22:39 MSK, Avata 360 + RC2 `rc331` | Четыре re-entry при `auto_fcc=false`; monitor/request всё время stopped, DUML proxy connected | Stale-marker resurrection и периодический reconnect regression из 1.5.16 устранены |
+| 2026-07-19 22:41 MSK, fresh Home Point | Auto-FCC начал listener, но завершился `Home Point stream disconnected`; `fcc_sequence_written=false` | Fail-closed 1.5.17 оказался слишком строгим: transition потерян около единственного разрыва stream |
+| 2026-07-19 22:52 MSK, после записанного Home Point | Ручной `Re-Send FCC Request`: 42/42 writes; пользователь физически подтвердил FCC | Полный профиль после Home Point остаётся рабочим; дефект локализован в monitor/recovery, не в FCC profile |
+| Hotfix `1.5.18` | Один reconnect разрешён только если тот же gate уже видел CRC-valid `Home Point=false`; budget расходуется до reopen | PENDING live retest fresh `false → disconnect → true`; unarmed/second disconnect должны завершиться без цикла |
+
 ## Outdoor evidence: Home Point сбрасывает ранний FCC
 
 | Наблюдение | Уровень | Вывод |

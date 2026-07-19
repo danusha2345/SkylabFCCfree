@@ -47,6 +47,7 @@ class FccKeepaliveService : Service() {
         private const val EXTRA_REQUEST_GENERATION = "request_generation"
         private const val INITIAL_CONNECT_RETRY_DELAY_MS = 15_000L
         private const val MAX_INITIAL_CONNECT_ATTEMPTS = 2
+        private const val ARMED_STREAM_RETRY_DELAY_MS = 2_000L
         private const val APPLY_CONNECT_RETRY_DELAY_MS = 5_000L
         private const val PREFS_NAME = "freefcc"
         private const val PREF_AUTO_FCC = "auto_fcc"
@@ -245,6 +246,7 @@ class FccKeepaliveService : Service() {
             val homePointSession = HomePointSessionGate()
             var homePointRecorded = false
             var initialConnectAttempts = 0
+            var armedStreamReconnectUsed = false
             var monitorFailure: String? = null
             while (requestGate.isCurrent(generation) && !homePointRecorded) {
                 if (Port40007Lock.shouldYieldToLed()) {
@@ -271,19 +273,27 @@ class FccKeepaliveService : Service() {
                 when (HomePointRetryPolicy.decide(
                     result = waitResult,
                     initialConnectAttempts = initialConnectAttempts,
-                    maxInitialConnectAttempts = MAX_INITIAL_CONNECT_ATTEMPTS
+                    maxInitialConnectAttempts = MAX_INITIAL_CONNECT_ATTEMPTS,
+                    sessionArmed = homePointSession.isArmedForRecordedEdge(),
+                    armedStreamReconnectUsed = armedStreamReconnectUsed
                 )) {
                     HomePointWaitDecision.RECORDED -> homePointRecorded = true
                     HomePointWaitDecision.RETRY_INITIAL_CONNECT -> {
                         delay(INITIAL_CONNECT_RETRY_DELAY_MS)
                     }
+                    HomePointWaitDecision.RETRY_ARMED_STREAM_ONCE -> {
+                        // Consume the single recovery budget before backoff so
+                        // cancellation/re-entry cannot manufacture extra opens.
+                        armedStreamReconnectUsed = true
+                        delay(ARMED_STREAM_RETRY_DELAY_MS)
+                    }
                     HomePointWaitDecision.FAIL_CLOSED -> {
                         // Reopening an established 40007 stream repeatedly was
                         // proven to disrupt the aircraft/controller link.
                         monitorFailure = if (waitResult == HomePointWaitResult.STREAM_DISCONNECTED) {
-                            "Home Point stream disconnected; toggle Auto-FCC to retry"
+                            "Home Point stream disconnected; reopen FreeFCC or toggle Auto-FCC to retry"
                         } else {
-                            "Home Point stream unavailable; toggle Auto-FCC to retry"
+                            "Home Point stream unavailable; reopen FreeFCC or toggle Auto-FCC to retry"
                         }
                         break
                     }

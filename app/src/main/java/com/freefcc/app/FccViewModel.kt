@@ -97,7 +97,7 @@ private class LanWriteLease(
 class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     companion object {
-        const val APP_VERSION = "1.5.17"
+        const val APP_VERSION = "1.5.18"
 
         private const val MAX_LOG_ENTRIES = 200
         private val processLogLock = Any()
@@ -407,6 +407,12 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         } else {
             autoFccJob?.cancel()
             FccKeepaliveService.stop(app)
+            update {
+                copy(
+                    isKeepaliveRunning = false,
+                    message = "Auto-FCC off"
+                )
+            }
             log("Auto-FCC disabled — active auto-flow cancellation requested")
         }
     }

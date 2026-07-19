@@ -121,6 +121,70 @@ class HomePointMonitorTest {
     }
 
     @Test
+    fun armedGateAcceptsRecordedSnapshotAfterOneStreamReconnect() {
+        val gate = HomePointSessionGate()
+        val firstServer = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val firstThread = Thread {
+            firstServer.use { listener ->
+                listener.accept().use { socket ->
+                    socket.getInputStream().read(ByteArray(128))
+                    socket.getOutputStream().apply {
+                        write(Profiles.wrapFrame(homePointFrame(0x0046)))
+                        flush()
+                    }
+                }
+            }
+        }
+        firstThread.start()
+
+        val firstResult = HomePointMonitor(port = firstServer.localPort)
+            .waitUntilRecorded(gate) { true }
+        firstThread.join(2_000)
+        assertEquals(HomePointWaitResult.STREAM_DISCONNECTED, firstResult)
+        assertTrue(gate.isArmedForRecordedEdge())
+
+        val secondServer = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val secondThread = Thread {
+            secondServer.use { listener ->
+                listener.accept().use { socket ->
+                    socket.getInputStream().read(ByteArray(128))
+                    socket.getOutputStream().apply {
+                        write(Profiles.wrapFrame(homePointFrame(0x0047)))
+                        flush()
+                    }
+                }
+            }
+        }
+        secondThread.start()
+
+        val secondResult = HomePointMonitor(port = secondServer.localPort)
+            .waitUntilRecorded(gate) { true }
+        secondThread.join(2_000)
+        assertEquals(HomePointWaitResult.RECORDED, secondResult)
+        assertFalse(gate.isArmedForRecordedEdge())
+    }
+
+    @Test
+    fun eofAfterStopRequestIsCooperativeStop() {
+        val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val thread = Thread {
+            server.use { listener ->
+                listener.accept().use { socket ->
+                    socket.getInputStream().read(ByteArray(128))
+                }
+            }
+        }
+        thread.start()
+        var continuationChecks = 0
+
+        val result = HomePointMonitor(port = server.localPort)
+            .waitUntilRecorded { ++continuationChecks == 1 }
+
+        thread.join(2_000)
+        assertEquals(HomePointWaitResult.STOPPED, result)
+    }
+
+    @Test
     fun sessionGateSurvivesCooperativeReopenAndRequiresFreshEdge() {
         val firstServer = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         val firstThread = Thread {

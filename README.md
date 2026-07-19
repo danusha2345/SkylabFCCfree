@@ -83,9 +83,10 @@ Validated upstream on DJI RC2 firmware v10.00.0700; this fork was additionally e
 The former two-second FCC keepalive is no longer used. Auto-FCC holds one
 port-`40007` listener until a CRC-valid `03:44` stream shows a fresh
 `not recorded → recorded` Home Point transition, then closes it and performs
-one complete FCC apply. An unexpected established-stream disconnect stops the
-monitor instead of opening a disruptive reconnect loop; toggle Auto-FCC to
-start a new session.
+one complete FCC apply. If an established stream disconnects after the same
+session already reported `not recorded`, Auto-FCC permits exactly one bounded
+reconnect with the same gate. An unarmed or second disconnect stops fail-closed,
+so there is no disruptive reconnect loop.
 
 If you test it on a model or firmware version not listed here, please [open an issue](https://github.com/danusha2345/FreeFCC/issues) and let me know.
 

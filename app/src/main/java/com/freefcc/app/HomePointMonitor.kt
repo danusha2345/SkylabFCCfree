@@ -28,6 +28,9 @@ internal class HomePointSessionGate {
         triggered = true
         return true
     }
+
+    @Synchronized
+    fun isArmedForRecordedEdge(): Boolean = armed && !triggered
 }
 
 internal object HomePointProtocol {
@@ -170,7 +173,13 @@ internal class HomePointMonitor(
                 } catch (_: SocketTimeoutException) {
                     continue
                 }
-                if (count <= 0) return HomePointWaitResult.STREAM_DISCONNECTED
+                if (count <= 0) {
+                    return if (shouldContinue()) {
+                        HomePointWaitResult.STREAM_DISCONNECTED
+                    } else {
+                        HomePointWaitResult.STOPPED
+                    }
+                }
                 for (frame in parser.feed(buffer, count)) {
                     val recorded = HomePointProtocol.isRecorded(frame) ?: continue
                     if (sessionGate.observe(recorded)) {
