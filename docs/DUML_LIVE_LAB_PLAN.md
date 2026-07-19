@@ -96,13 +96,13 @@ keepalive/`BootReceiver`. После Home Point она может восстан
 
 | Проверка | Результат |
 |---|---|
-| Main | PENDING: commit и push после полного regression-прогона |
-| Build | 73 JVM tests, `lintDebug`, `assembleDebug` и `assembleRelease` завершены успешно |
+| Main | app commit `de26d32fef4db30fabc60817a51dc6982c10c343` запушен в `origin/main`; tag `v1.5.16` указывает на него |
+| Build | Локально: 73 JVM tests, `lintDebug`, `assembleDebug` и `assembleRelease`; GitHub Actions run `29691793556`: build, tests и lint успешно |
 | APK metadata | package `com.freefcc.app`, versionCode `33`, versionName `1.5.16`, APK Signature Scheme v3 |
 | Совместимость подписи | Certificate SHA-256 совпадает с предыдущим установленным релизом: `1e50efc760a23d71f5ec57f855af4b8c42c21fea6da9122889d59b3b23b890ce` |
 | Release artifact | `FreeFCC-1.5.16.apk`, SHA-256 `d46e8a5f90ce19794ff04c62b99c06fc31a6b12d45e02bb17e59076504e205f0` |
-| Release | PENDING: GitHub release `v1.5.16` |
-| RC2 update | PENDING: in-app update и повторное подключение LAN bridge |
+| Release | <https://github.com/danusha2345/FreeFCC/releases/tag/v1.5.16> |
+| RC2 update | PENDING: ADB device отсутствует, прежний `192.168.1.139:8787` недоступен, UDP beacon за 15 s не получен |
 | Auto-FCC runtime | PENDING: exact Home Point transition, один full apply, listener/service остановлены без повторных writes |
 | LED runtime | PENDING: один startup read, readback после ON/OFF, без polling |
 
