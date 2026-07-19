@@ -2,13 +2,12 @@
 
 Дата: 2026-07-19.
 
-Статус: исправления опубликованы как FreeFCC `1.5.13`. Commit `ce9ca18`
-исправляет findings Claude и добавляет reviewed `wire_exchange`, commit
-`cb51159` исправляет release workflow. Объединённая версия прошла 48 JVM
-unit-тестов, `lintDebug` и `assembleRelease`; три независимых финальных review
-дали `GO` по parser/transport, LAN locking и FCC lifecycle. Подписанный APK
-опубликован в GitHub Release. Установка `1.5.13` и live-проверка на RC2 ожидают
-повторного появления пульта по ADB или LAN.
+Статус: FreeFCC `1.5.13` установлен и проверен на RC2. LAN API, UDP discovery,
+incremental parser и exact `wire_exchange` работают. Live-проверка выявила
+новый дефект: восстановленный четырёхкадровый keepalive успешно писал TCP, но
+не переводил радио из CE; ручной полный `Re-apply` (21 frame × 2 rounds) реально
+включил FCC. Draft `1.5.14` сначала выполняет полный bootstrap и только после
+его успешной записи переходит на лёгкий повторяющийся профиль.
 
 ## Release evidence `1.5.13`
 
@@ -22,6 +21,21 @@ unit-тестов, `lintDebug` и `assembleRelease`; три независимы
 | Release artifact | `FreeFCC-1.5.13.apk`, SHA-256 `d5be20bfac263cf8cb9a004576a9c74eec052b4505b1c82075fd8eb7e3f3db38` |
 | Release | <https://github.com/danusha2345/FreeFCC/releases/tag/v1.5.13> |
 | RC2 reachability после release | ADB device отсутствует; старый `192.168.1.139:8787` недоступен; UDP beacon за 15 s не получен |
+
+## Live evidence `1.5.13`
+
+| Проверка | Результат | Вывод |
+|---|---|---|
+| Install/discovery | `app_version=1.5.13`, `192.168.1.139:8787`, UDP beacon получен | Обновление и LAN bridge работают |
+| Восстановленный keepalive | `keepalive_status=running`, successful-write timestamp обновлялся примерно каждые 2,24 s, но пользователь физически видел CE | TCP write сокращённого профиля не доказывает и не устанавливает FCC из CE |
+| Ручной `Re-apply` | 42/42 writes completed; пользователь физически подтвердил FCC | Полный `fcc.json` работает на текущем aircraft/controller session |
+| Сравнение профилей | keepalive: 4 frames × 1; manual: 21 frames × 2 | При старте keepalive нужен полный bootstrap; короткий профиль допустим только после него |
+| Passive `40009`, 3 s | 26 CRC-valid frames; `06:AE`, `06:77`, `06:A4`, `00:81`, `00:82` | Новый parser устойчиво разбирает живой поток |
+| Identity telemetry | `00:81` и `00:82` содержат ASCII `rc3331` | Это runtime controller telemetry; не aircraft serial |
+| Direct `03:F8` на `40009` | write completed, matching response нет, получен unmatched `06:AE` | Direct path по-прежнему не возвращает lamp read response |
+| Wrapped `03:F8` на `40007` | `wire_exchange` вернул 1989 B; внутри response `551304030302ad108003f800a259ceedefaec0` | Валидный payload `00 a259ceed ef`: lamp parameter прочитан, значение default/on |
+| Device info / serial | `No response from controller`; serial пуст | Текущие structured routes не подтверждены |
+| 4G probe | abstract socket `/duss/mb/0x205` reachable | Endpoint есть; modem type/eSIM и activation не доказаны |
 
 ## Трекер исправлений `1.5.13`
 

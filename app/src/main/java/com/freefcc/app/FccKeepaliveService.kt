@@ -21,9 +21,10 @@ import java.util.concurrent.atomic.AtomicBoolean
  * profile every [INTERVAL_MS] milliseconds. Runs independently of the
  * Activity lifecycle so it continues working when the user switches to DJI Fly.
  *
- * The keepalive profile is loaded once at service creation and cached —
- * re-parsing the JSON asset and rebuilding frames with CRC on every 2-second
- * tick was wasteful CPU on the controller.
+ * The full FCC profile and lightweight keepalive profile are loaded once at
+ * service creation and cached. Every service start first runs the full profile
+ * once, because the four-frame sequence is only intended for low-cost repeats
+ * and cannot reliably switch an RC2 back from CE after DJI Fly has reset it.
  *
  * The persistent keepalive flag (stored in SharedPreferences) is read at start
  * so a sticky restart after a system kill respects the user's last intent.
@@ -88,23 +89,18 @@ class FccKeepaliveService : Service() {
     private var keepaliveJob: Job? = null
     private val transport = DumlTransport()
 
-    /** Cached at onCreate — loading JSON + building frames on every 2s tick is wasteful. */
-    private var cachedFrames: List<ByteArray>? = null
-    private var cachedInterFrameDelay: Long = 100
-    private var cachedReadWindowMs: Int = 80
-    private var cachedPort: Int = DumlTransport.PORT
+    /** Cached at onCreate — JSON parsing and CRC building do not belong in the loop. */
+    private var cachedBootstrapProfile: Profiles.Profile? = null
+    private var cachedKeepaliveProfile: Profiles.Profile? = null
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
-        // Load the keepalive profile once and cache the built frames.
-        // If the asset is missing/corrupt the cache stays null and the loop no-ops.
+        // The full profile establishes FCC from CE. The smaller profile only
+        // maintains it after that bootstrap succeeds.
         runCatching {
-            val profile = Profiles.load(this, "fcc_keepalive.json")
-            cachedFrames = profile.frames
-            cachedInterFrameDelay = profile.interFrameDelay
-            cachedReadWindowMs = profile.readWindowMs
-            cachedPort = profile.port
+            cachedBootstrapProfile = Profiles.load(this, "fcc.json")
+            cachedKeepaliveProfile = Profiles.load(this, "fcc_keepalive.json")
         }
     }
 
@@ -156,7 +152,7 @@ class FccKeepaliveService : Service() {
                 }
                 // If the profile failed to load, don't become a silent
                 // foreground no-op — stop immediately.
-                if (cachedFrames == null) {
+                if (cachedBootstrapProfile == null || cachedKeepaliveProfile == null) {
                     runRequested.set(false)
                     getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                         .edit().putBoolean(PREF_KEEPALIVE, false).apply()
@@ -174,13 +170,13 @@ class FccKeepaliveService : Service() {
     private fun startKeepaliveLoop() {
         keepaliveJob?.cancel()
         keepaliveJob = scope.launch {
-            val frames = cachedFrames ?: return@launch
+            val bootstrapProfile = cachedBootstrapProfile ?: return@launch
+            val keepaliveProfile = cachedKeepaliveProfile ?: return@launch
+            val schedule = FccKeepaliveSchedule(bootstrapProfile, keepaliveProfile)
             FccRuntime.tracker.serviceRunning()
             while (runRequested.get()) {
-                // Apply immediately when the service starts or is reasserted
-                // after returning from DJI Fly. Waiting one full interval here
-                // leaves enough time for DJI Fly to restore CE before the first
-                // keepalive write.
+                // Apply immediately. The first successful pass is the complete
+                // FCC profile; later passes use the lightweight keepalive.
                 // Retry acquiring the lock with a short backoff instead of
                 // silently skipping the tick. This prevents a gap where DJI
                 // Fly can reset the radio to CE while another operation
@@ -194,13 +190,16 @@ class FccKeepaliveService : Service() {
                     if (hardwareLease != null) {
                         try {
                             if (runRequested.get()) {
+                                val profile = schedule.nextProfile()
                                 val written = transport.sendFrames(
-                                    frames = frames,
-                                    rounds = 1,
-                                    interFrameDelayMs = cachedInterFrameDelay,
-                                    readWindowMs = cachedReadWindowMs,
-                                    port = cachedPort
+                                    frames = profile.frames,
+                                    rounds = profile.rounds,
+                                    interFrameDelayMs = profile.interFrameDelay,
+                                    interRoundDelayMs = profile.interRoundDelay,
+                                    readWindowMs = profile.readWindowMs,
+                                    port = profile.port
                                 )
+                                schedule.recordWrite(written)
                                 FccRuntime.tracker.recordWrite(written)
                             }
                         } catch (e: kotlinx.coroutines.CancellationException) {

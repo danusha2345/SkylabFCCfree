@@ -97,7 +97,7 @@ private class LanWriteLease(
 class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     companion object {
-        const val APP_VERSION = "1.5.13"
+        const val APP_VERSION = "1.5.14"
 
         private const val MAX_LOG_ENTRIES = 200
         private val processLogLock = Any()
