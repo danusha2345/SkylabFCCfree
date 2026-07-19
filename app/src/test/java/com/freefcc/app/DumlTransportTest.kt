@@ -162,6 +162,49 @@ class DumlTransportTest {
     }
 
     @Test
+    fun wrappedRawExchangeWritesOuterAndMatchesInnerResponse() {
+        val request = LedReadbackProtocol.buildRequest()
+        val expectedPayload = byteArrayOf(
+            0,
+            0xA2.toByte(),
+            0x59,
+            0xCE.toByte(),
+            0xED.toByte(),
+            0xEF.toByte()
+        )
+        val response = buildResponse(request, expectedPayload)
+        val wrappedRequest = Profiles.wrapFrame(request)
+        val wrappedResponse = Profiles.wrapFrame(response)
+        val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val serverThread = Thread {
+            server.use {
+                it.accept().use { socket ->
+                    val received = ByteArray(wrappedRequest.size)
+                    socket.getInputStream().read(received)
+                    assertArrayEquals(wrappedRequest, received)
+                    socket.getOutputStream().apply {
+                        write(wrappedResponse)
+                        flush()
+                    }
+                }
+            }
+        }
+        serverThread.start()
+
+        val exchange = DumlTransport().sendAndReceiveRaw(
+            frame = request,
+            wireFrame = wrappedRequest,
+            readWindowMs = 1_000,
+            port = server.localPort,
+            autoDetectPort = false
+        )
+
+        serverThread.join(5_000)
+        assertArrayEquals(response, exchange.matchedFrame)
+        assertArrayEquals(expectedPayload, exchange.validatedPayload)
+    }
+
+    @Test
     fun passiveCaptureCollectsMultipleValidFrames() {
         val firstRequest = DumlBuilder().buildFrame(
             DumlFrame(0x2A, 0x40, 0x03, 0xF8, 0x03, ByteArray(0))

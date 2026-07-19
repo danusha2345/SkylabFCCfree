@@ -1,6 +1,6 @@
 {
-  "name": "FCC Keepalive",
-  "description": "Re-applies FCC radio mode every 2s over TCP 40009 to prevent DJI Fly from resetting to CE. Uses only TCP-confirmed-working frames.",
+  "name": "Legacy FCC Keepalive",
+  "description": "Retained as a reverse-engineering reference only. The runtime no longer sends this four-frame profile; Auto-FCC waits for Home Point and applies the complete FCC profile once.",
   "sender": 130,
   "sender_desc": "MOBILE_APP, index 4",
   "cmd_type": 32,

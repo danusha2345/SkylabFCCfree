@@ -346,6 +346,7 @@ class DumlTransport {
         readWindowMs: Int = 500,
         port: Int = PORT,
         autoDetectPort: Boolean = true,
+        wireFrame: ByteArray = frame,
         onWriteFlushed: () -> Unit = {}
     ): DumlRawExchange {
         var socket: Socket? = null
@@ -358,7 +359,7 @@ class DumlTransport {
             socket.tcpNoDelay = true
 
             failureStage = "write"
-            socket.getOutputStream().apply { write(frame); flush() }
+            socket.getOutputStream().apply { write(wireFrame); flush() }
             writeCompleted = true
             failureStage = "read"
             onWriteFlushed()

@@ -10,7 +10,7 @@ import java.util.concurrent.atomic.AtomicBoolean
  * Process-wide serialization for every controller-/aircraft-facing DUML write.
  *
  * [FccViewModel] (UI-triggered operations) and [FccKeepaliveService] (background
- * re-apply loop) are separate Android components with no shared instance, so the
+ * post-Home-Point apply) are separate Android components with no shared instance, so the
  * lock lives here as a singleton both can reach. [busy] mirrors who currently
  * holds it, so the UI reflects service writes too.
  */

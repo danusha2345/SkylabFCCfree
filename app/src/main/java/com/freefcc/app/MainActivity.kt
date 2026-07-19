@@ -231,37 +231,6 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                     GlowButton("Launch DJI Fly", Green, filled = false, enabled = !state.isHardwareBusy) {
                         viewModel.launchDjiFly()
                     }
-                    Spacer(Modifier.height(10.dp))
-                    // Keepalive toggle
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(modifier = Modifier.weight(1f)) {
-                            Text("Keepalive", color = TextWhite, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
-                            Spacer(Modifier.height(2.dp))
-                            Text(
-                                if (state.isKeepaliveRunning) "Re-applying FCC every 2s to prevent CE reset"
-                                else "Keep FCC active while DJI Fly runs",
-                                color = if (state.isKeepaliveRunning) Green else TextGray,
-                                fontSize = 11.sp,
-                                lineHeight = 15.sp
-                            )
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Switch(
-                            checked = state.isKeepaliveRunning,
-                            onCheckedChange = { enabled ->
-                                if (enabled) viewModel.startKeepalive() else viewModel.stopKeepalive()
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Green,
-                                checkedTrackColor = Green.copy(0.3f),
-                                uncheckedThumbColor = TextGray,
-                                uncheckedTrackColor = BgLight
-                            )
-                        )
-                    }
                 }
                 else -> {
                     if (state.message.isNotEmpty()) {
@@ -347,15 +316,41 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
             ) {
                 Column(modifier = Modifier.weight(1f)) {
                     Text("Aircraft LEDs", color = TextWhite, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "State: ${state.ledState.name}",
+                        color = when (state.ledState) {
+                            LedState.ON -> Green
+                            LedState.OFF -> TextGray
+                            LedState.PARTIAL -> Amber
+                            LedState.UNKNOWN -> TextDim
+                        },
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Bold
+                    )
                     if (state.ledStatus.isNotEmpty()) {
-                        Spacer(Modifier.height(6.dp))
+                        Spacer(Modifier.height(3.dp))
                         Text(
-                            "Result: ${state.ledStatus}",
-                            color = if (state.ledStatus.startsWith("ON")) Green
-                            else if (state.ledStatus.startsWith("OFF")) TextGray else Amber,
+                            state.ledStatus,
+                            color = TextGray,
                             fontSize = 12.sp,
                             fontWeight = FontWeight.Medium
                         )
+                    }
+                }
+                IconButton(
+                    onClick = { viewModel.refreshLedState() },
+                    enabled = state.isConnected && !state.isLedBusy && !state.isHardwareBusy,
+                    modifier = Modifier.size(36.dp)
+                ) {
+                    if (state.isLedBusy) {
+                        CircularProgressIndicator(
+                            modifier = Modifier.size(18.dp),
+                            strokeWidth = 2.dp,
+                            color = Cyan
+                        )
+                    } else {
+                        Icon(Icons.Default.Refresh, "Read LED state", tint = Cyan)
                     }
                 }
             }
@@ -405,7 +400,7 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                     Text("Auto-FCC", color = TextWhite, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        "Connect, apply FCC, start keepalive, then open DJI Fly.",
+                        "Wait for Home Point, apply FCC once, then stop.",
                         color = TextGray,
                         fontSize = 12.sp,
                         lineHeight = 17.sp

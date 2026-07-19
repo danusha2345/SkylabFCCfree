@@ -57,7 +57,8 @@ curl -sS -X POST \
 
 Available actions are returned by `/api/commands`. Long-running application
 actions return HTTP `202 Accepted`; poll `/api/status` and `/logs` for their
-result. The list includes connection, FCC/CE, keepalive, Auto-FCC, LED, device
+result. The list includes connection, FCC/CE, Home Point wait (with legacy
+`keepalive_start/stop` aliases), Auto-FCC, LED, device
 info, serial and 4G probes, updater actions, and flight-app launch. Busy hardware
 returns `409`; commands that require a prior controller connection or update
 check return `412`.
@@ -65,8 +66,9 @@ check return `412`.
 `fcc_enabled` in `/api/status` is always `null`: the localhost proxy does not
 provide a physical RF-region readback. `fcc_sequence_written` and
 `fcc_last_write_at_ms` describe only a successful profile write in the current
-app process. `keepalive_status` is the observed service lifecycle, while
-`keepalive_requested` is the persistent user intent.
+app process. `home_point_monitor_running` is the observed one-shot listener
+lifecycle, while `home_point_monitor_requested` records an in-progress wait.
+The old `keepalive_*` fields remain as compatibility aliases.
 
 ## Raw DUML
 
@@ -98,34 +100,31 @@ assumed valid for another aircraft.
 
 The first hardware probe should be the read-only `03:F8` form. It uses the same
 parameter hash as the existing `03:F9` LED write profiles and does not require a
-model-specific E1/E2 index:
+model-specific E1/E2 index. The application-level command performs the required
+port-`40007` wrapping and strict inner DUML response validation:
 
 ```bash
 curl -sS -X POST \
   -H "X-FreeFCC-Password: $FREEFCC_PASSWORD" \
-  --data 'command=duml_request' \
-  --data 'sender=0x2a' \
-  --data 'dst=0x03' \
-  --data 'cmd_type=0x40' \
-  --data 'cmd_set=0x03' \
-  --data 'cmd_id=0xf8' \
-  --data 'payload=a259ceed' \
-  --data 'port=40009' \
-  --data 'timeout_ms=3000' \
+  --data 'command=led_read' \
   "$FREEFCC_URL/api/command"
 ```
 
-A validated factory-style response is expected as
+The command is asynchronous (`202 accepted`). Read `/api/status` after it
+finishes; `led_state` is `on`, `off`, `partial`, or `unknown`, and `led_value`
+contains the current u8 mask when verified. A validated factory-style response is
 `payload_hex=00a259ceedXX`: status `00`, echoed hash, then the current u8 value.
 Common captured values are `00` (off), `ef` (default/on), or a partial bitmask
 such as `04`/`05`. Treat `504` only as “no response on this transport path,” not
-as an LED state. This probe must use direct port `40009`; wrapped response
-parsing on `40007` is not implemented.
+as an LED state. The app performs one read on demand or after a write; it does
+not poll `40007`, because repeated proxy connections disrupted the aircraft link
+in live testing.
 
 `duml_send` uses the same fields and also accepts `wrapper=true` for the outer
-port-`40007` envelope. It reports only socket write completion. Wrapped response
-parsing is intentionally not supported by `duml_request`; use `wire_exchange`
-when the outer reply must be retained without interpretation.
+port-`40007` envelope. It reports only socket write completion. Generic wrapped
+response parsing remains intentionally unavailable through `duml_request`; use
+`led_read` for the supported lamp readback or `wire_exchange` when the raw outer
+reply must be retained without interpretation.
 
 Allowed ports are `40007`, `40009`, and `8901..8904`. Payload length is limited
 to the DUML frame maximum. The API never exposes shell commands, filesystem
@@ -156,9 +155,10 @@ privileged access.
 
 Only one LAN diagnostic operation (`duml_send`, `duml_request`, `duml_capture`,
 or `wire_exchange`) may run at a time; another returns `409 diagnostic_busy`.
-For request/response operations the FCC/LED write gates are released immediately
-after `flush()`, while the response continues on the original socket. A passive
-wait therefore does not starve the two-second FCC keepalive.
+For request/response operations the hardware write gate is released immediately
+after `flush()`, while the response continues on the original socket. The Home
+Point listener and supported LED actions additionally share a process-wide
+port-`40007` lease and never open concurrent sessions there.
 
 ## Exact raw wire exchange
 

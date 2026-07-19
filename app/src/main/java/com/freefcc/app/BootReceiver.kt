@@ -5,10 +5,10 @@ import android.content.Context
 import android.content.Intent
 
 /**
- * Restarts the FCC keepalive service after a reboot if the user enabled auto-FCC.
+ * Starts the one-shot Home Point monitor after reboot when Auto-FCC is enabled.
  *
  * The auto-FCC preference is stored in SharedPreferences and survives a reboot,
- * but Android kills all app processes on reboot — so the keepalive foreground
+ * but Android kills all app processes on reboot — so the foreground monitor
  * service must be re-started explicitly. This receiver does that by reading
  * the auto_fcc flag and starting [FccKeepaliveService] if it's on.
  *

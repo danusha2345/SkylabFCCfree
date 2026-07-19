@@ -32,9 +32,9 @@ A free and open-source Android app that unlocks FCC mode, sends experimental 4G 
 |---------|-------------|
 | **FCC Unlock** | Switches the radio from CE to FCC mode for higher power and more channels |
 | **4G Activation** | Sends 4G activation frames to the aircraft (serial read at runtime) — no status readback, experimental |
-| **LED Control** | Sends aircraft LED on/off commands through the controller's local proxy (DJI Fly and a linked aircraft are required) |
+| **LED Control** | Reads the current lamp state and verifies it after LED on/off commands (DJI Fly and a linked aircraft are required) |
 | **Device Info** | Attempts to query hardware and firmware version; response availability depends on the controller/proxy path |
-| **Auto-FCC** | Toggle to automatically connect and apply FCC every time the app opens |
+| **Auto-FCC** | Waits for Home Point, applies the full FCC profile once, then stops its listener |
 | **Auto-Updater** | Checks `danusha2345/FreeFCC` GitHub Releases and lets you download/install from the app |
 | **LAN Diagnostic API** | Logs, live status, allowlisted app actions, and raw DUML request/response over HTTP on the controller's RFC1918 Wi-Fi address |
 | **Local by default** | Internet is used for update checks/downloads; the LAN API stays inside the current Wi-Fi subnet and can be disabled in the Log tab |
@@ -78,7 +78,9 @@ The captured 4G profile is experimental and was derived from systems using exter
 
 Validated upstream on DJI RC2 firmware v10.00.0700; this fork was additionally exercised live on RC2 `rc331`. Future firmware can change the local proxy or DUML routing, so compatibility must be rechecked rather than assumed.
 
-> **Known issue under investigation:** an [RC Pro report](https://github.com/doesthings/FreeFCC/issues/19) says the right zoom wheel stops responding while FCC keepalive is enabled. The app-level hardware lock does not coordinate with DJI Fly/Pilot processes. Until an A/B hardware test isolates the cause, disable keepalive if controller inputs behave unexpectedly.
+The former two-second FCC keepalive is no longer used. Auto-FCC now holds one
+port-`40007` listener only until a CRC-valid `03:44` frame reports Home Point,
+then closes it and performs one complete FCC apply.
 
 If you test it on a model or firmware version not listed here, please [open an issue](https://github.com/danusha2345/FreeFCC/issues) and let me know.
 
@@ -127,11 +129,11 @@ Swipe from the right edge to open ATV Launcher. Open the Files app, find your fo
 
 1. Power on the drone and link it to the controller
 2. Open FreeFCC and tap **Connect**
-3. Tap **Enable FCC Mode** and wait for the green checkmark
+3. For automatic operation, enable **Auto-FCC**. It opens DJI Fly, waits for Home Point, then applies FCC once. Manual **Enable FCC Mode** remains available for testing or recovery.
 4. For 4G diagnostics, tap **Probe 4G Endpoint** first. This is read-only and only checks whether `/duss/mb/0x205` is reachable. **Send 4G Activation Frames** remains experimental and confirms writes only, not activation.
    > **Note:** The integrated eSIM path on DJI Avata 360 is not yet proven compatible with the captured external-module profile. Please attach the LAN logs to an [issue](https://github.com/danusha2345/FreeFCC/issues) when testing.
 5. To stop: tap **Stop FCC Mode** to restore CE
-6. For LED control, tap **LED ON** or **LED OFF**.
+6. The LED card reads state once after connection and verifies it after **LED ON** or **LED OFF**. Use refresh for one additional on-demand read.
 7. The **Info** tab lets you query the controller's hardware and firmware version
 8. The **Log** tab starts the LAN diagnostic API by default. It uses unencrypted HTTP and a fixed shared password. A UDP beacon broadcasts only the controller IP and port across the current Wi-Fi subnet; it does not include the password, logs, or command payloads. Disable the bridge on untrusted Wi-Fi. See [LAN Control API](docs/LAN_CONTROL_API.md).
 
@@ -181,7 +183,7 @@ For FCC, CE, and request/response diagnostics, the app sends DUML commands to lo
 
 Each command is a small binary packet with a magic byte (`0x55`), routing fields, a payload, and two CRC checksums. Ordinary TCP commands use one packet per connection. LED commands use an outer wrapper on port `40007`; 4G uses one abstract Unix datagram socket for the complete frame burst.
 
-The LED buttons currently report successful command writes, not a read-back of the physical lamp state. The LAN API exposes a read-only `03:F8` hash probe for real state testing; see [LAN Control API](docs/LAN_CONTROL_API.md#read-the-current-lamp-parameter-by-hash). The UI will only claim verified state after that path is confirmed on hardware.
+The LED card keeps physical state separate from write completion. Its refresh action, and every LED write, perform one wrapped read-only `03:F8` hash request and display `ON`, `OFF`, `PARTIAL`, or `UNKNOWN`. A missing or mismatched response never preserves the requested value as if it were verified. See [LAN Control API](docs/LAN_CONTROL_API.md#read-the-current-lamp-parameter-by-hash).
 
 ### FCC Profile
 
@@ -245,7 +247,7 @@ The frames are plaintext on the local socket with no encryption. Once captured, 
 app/src/main/
   assets/profiles/
     fcc.json          21 frames, FCC unlock
-    fcc_keepalive.json 4 frames, periodic FCC re-apply
+    fcc_keepalive.json legacy 4-frame research profile (not used at runtime)
     ce_restore.json    1 experimental default-region request
     4g.json           128 frames, 4G activation
     device_info.json   1 frame, version inquiry
@@ -253,8 +255,10 @@ app/src/main/
     led_off.json       1 frame, LED off (port 40007)
   java/com/freefcc/app/
     DumlTransport.kt  Frame builder, incremental parser + bounded socket I/O
-    FccRuntime.kt      Process-local FCC write and keepalive runtime evidence
-    FccKeepaliveService.kt Foreground periodic FCC re-apply
+    FccRuntime.kt      Process-local FCC write and monitor runtime evidence
+    HomePointMonitor.kt One-connection wrapped 03:44 listener
+    LedReadback.kt      Strict 03:F8 lamp-state decoding
+    FccKeepaliveService.kt Foreground Home Point wait + one full FCC apply
     LanControl.kt      LAN command validation and JSON encoding
     NetworkLogServer.kt Private-Wi-Fi logs/status/command HTTP API
     Profiles.kt        JSON profile loader

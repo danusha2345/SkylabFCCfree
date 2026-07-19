@@ -8,9 +8,7 @@ import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -47,6 +45,8 @@ data class AppState(
     val isQueryingInfo: Boolean = false,
     val autoFcc: Boolean = false,
     val isLedBusy: Boolean = false,
+    val ledState: LedState = LedState.UNKNOWN,
+    val ledRawValue: Int? = null,
     val ledStatus: String = "",
     val logMessages: List<String> = emptyList(),
     // Update state
@@ -97,7 +97,7 @@ private class LanWriteLease(
 class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     companion object {
-        const val APP_VERSION = "1.5.14"
+        const val APP_VERSION = "1.5.15"
 
         private const val MAX_LOG_ENTRIES = 200
         private val processLogLock = Any()
@@ -129,8 +129,11 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             "ce_restore",
             "keepalive_start",
             "keepalive_stop",
+            "home_point_wait_start",
+            "home_point_wait_stop",
             "auto_fcc_on",
             "auto_fcc_off",
+            "led_read",
             "led_on",
             "led_off",
             "device_info",
@@ -203,6 +206,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("freefcc", Context.MODE_PRIVATE)
     private var initialized = false
     private var autoFccJob: Job? = null
+    private val startupLedReadAttempted = AtomicBoolean(false)
     @Volatile private var aircraftIdentityVerified = false
 
     init {
@@ -262,8 +266,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         // v1.5.12 and earlier persisted a write as if it were current FCC
         // state. Ignore and remove that stale cross-process evidence.
         prefs.edit().remove("fcc_sequence_written").apply()
-        // Sync the keepalive toggle with the persistent flag so the UI is
-        // correct after a process restart (e.g. low-memory kill + sticky restart).
+        // Restore an in-progress Home Point wait after process recreation.
         val keepaliveRequested = FccKeepaliveService.isRunningFlagSet(app)
         val runtime = FccRuntime.tracker.state.value
         update {
@@ -278,18 +281,16 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         }
         log("FreeFCC v$APP_VERSION started on $model")
 
-        // The SharedPreferences flag records user intent, not proof that the
-        // service survived an Activity/process recreation. Re-send ACTION_START
-        // so Android recreates the foreground service if needed and the first
-        // keepalive write is not silently lost after returning from DJI Fly.
+        // The SharedPreferences flag records an in-progress wait, not proof that
+        // the service survived Activity/process recreation. Re-send ACTION_START.
         if (keepaliveRequested) {
             try {
                 FccKeepaliveService.start(app)
-                log("FCC keepalive requested state restored")
+                log("Home Point monitor requested state restored")
             } catch (e: Exception) {
                 // Keep an existing persistent user request so a later
                 // foreground retry can restore the service.
-                log("FCC keepalive restore failed: ${e.message}")
+                log("Home Point monitor restore failed: ${e.message}")
             }
         }
 
@@ -298,7 +299,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         }
 
         if (autoEnabled) {
-            log("Auto-FCC enabled — connecting and applying...")
+            log("Auto-FCC enabled — connecting and waiting for Home Point...")
             autoConnectAndApply()
         } else {
             restoreConnectionIndicator()
@@ -327,7 +328,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         isFccEnabled = fccSequenceWritten,
                         fccLastWriteAtMs = lastWriteAtMs,
                         message = if (fccSequenceWritten && keepaliveRequested) {
-                            "FCC sequence written; keepalive requested — verify in DJI Fly."
+                            "FCC sequence written; Home Point monitor active — verify in DJI Fly."
                         } else if (fccSequenceWritten) {
                             "FCC sequence was written — verify the region in DJI Fly."
                         } else {
@@ -336,6 +337,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     )
                 }
                 log("DUML proxy restored after app reopen")
+                refreshLedStateAfterStartup()
                 if (detectedPort > 0) {
                     log("DUML port detected: $detectedPort")
                 }
@@ -397,122 +399,114 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         prefs.edit().putBoolean("auto_fcc", newValue).apply()
         update { copy(autoFcc = newValue) }
         if (newValue) {
-            log("Auto-FCC enabled — will auto-connect on next launch")
+            log("Auto-FCC enabled — will wait for Home Point before applying")
+            autoConnectAndApply()
         } else {
             autoFccJob?.cancel()
+            FccKeepaliveService.stop(app)
             log("Auto-FCC disabled — active auto-flow cancellation requested")
         }
     }
 
     /**
-     * Connects to the controller and applies FCC mode automatically.
-     * Waits for connection, then sends the FCC profile, starts the keepalive
-     * service, and launches DJI Fly while the Auto-FCC toggle remains enabled.
+     * Starts the one-shot Home Point monitor independently of the optional UI
+     * connection probe, then launches DJI Fly. The foreground service applies
+     * the full FCC profile once after Home Point is recorded.
      */
     private fun autoConnectAndApply() {
+        val monitorWasAlreadyRequested = FccKeepaliveService.isRunningFlagSet(app)
+        try {
+            FccKeepaliveService.start(app)
+            update { copy(message = "Waiting for Home Point in DJI Fly...") }
+            log("Auto-FCC: Home Point monitor requested")
+        } catch (e: Exception) {
+            if (!monitorWasAlreadyRequested) {
+                prefs.edit().putBoolean("auto_fcc", false).apply()
+                update {
+                    copy(
+                        autoFcc = false,
+                        status = "disconnected",
+                        message = "Auto-FCC could not start: ${e.message}"
+                    )
+                }
+                log("Auto-FCC start failed: ${e.message}")
+                return
+            }
+            log("Auto-FCC reassert failed, but the existing Home Point request remains active: ${e.message}")
+        }
+
         val hardwareLease = beginHardwareOp()
         if (hardwareLease == null) {
-            log("Auto-FCC skipped — another hardware operation is already running")
+            log("Auto-FCC: UI connection probe skipped while hardware is busy; Home Point monitor remains active")
+            launchDjiFly()
+            refreshLedStateAfterStartup()
             return
         }
-        var keepaliveStartedByAuto = false
         autoFccJob = runOnIO {
             try {
                 // Wait a moment for the UI to render
                 delay(1000)
 
-                // Try to connect — scans all known ports
-                update { copy(status = "connecting", message = "Auto-connecting...") }
-                if (!transport.connect()) {
-                    log("Auto-FCC: controller not found — is the drone powered on?")
-                    update { copy(status = "disconnected", message = "Controller not found. Auto-FCC will retry when you tap Connect.") }
+                // Pause the persistent 40007 listener while the one-shot proxy
+                // and serial probe uses the same local DUML broker.
+                val portLease = Port40007Lock.acquireForLed()
+                if (portLease == null) {
+                    log("Auto-FCC: UI connection probe skipped; Home Point monitor remains active")
+                    launchDjiFly()
+                    refreshLedStateAfterStartup()
                     return@runOnIO
                 }
 
-                FccRuntime.tracker.beginHardwareSession()
-                log("Auto-FCC: controller connected")
-                val detectedPort = transport.getDetectedPort()
-                if (detectedPort > 0) {
-                    log("DUML port detected: $detectedPort")
-                }
-                val serial = transport.probeSerial(1500)
-                if (serial.isNotEmpty()) {
-                    aircraftIdentityVerified = true
-                    prefs.edit().putString("aircraft_serial", serial).apply()
-                } else {
-                    aircraftIdentityVerified = false
-                }
-                update {
-                    copy(
-                        status = "connected",
-                        isConnected = true,
-                        aircraftSerial = serial,
-                        message = "Connected. Auto-applying FCC..."
-                    )
-                }
-                if (serial.isNotEmpty()) log("Aircraft serial: $serial")
-
-                // Apply FCC
-                delay(500)
-                update { copy(status = "applying", isBusy = true, busyProgress = 0f, message = "Applying FCC mode...") }
-                log("Auto-FCC: applying FCC mode...")
-
-                val profile = Profiles.load(app, "fcc.json")
-                val success = transport.sendFrames(
-                    frames = profile.frames,
-                    rounds = profile.rounds,
-                    interFrameDelayMs = profile.interFrameDelay,
-                    interRoundDelayMs = profile.interRoundDelay,
-                    readWindowMs = profile.readWindowMs,
-                    port = profile.port
-                ) { progress -> update { copy(busyProgress = progress) } }
-
-                if (success) {
-                    FccRuntime.tracker.recordWrite(true)
-                    update {
-                        copy(
-                            status = "fcc_written",
-                            message = "FCC sequence written. Starting keepalive...",
-                            isFccEnabled = true,
-                            isBusy = false,
-                            busyProgress = 1f,
-                            isConnected = true
-                        )
+                update { copy(status = "connecting", message = "Auto-connecting...") }
+                try {
+                    if (!transport.connect()) {
+                        log("Auto-FCC: UI probe did not find the controller; Home Point monitor will keep reconnecting")
+                        update {
+                            copy(
+                                status = "disconnected",
+                                message = "Waiting for controller and Home Point in DJI Fly..."
+                            )
+                        }
+                        launchDjiFly()
+                        refreshLedStateAfterStartup()
+                        return@runOnIO
                     }
-                    log("Auto-FCC: all FCC frames written; verify the region in DJI Fly")
 
-                    // Auto-start keepalive
-                    delay(500)
-                    currentCoroutineContext().ensureActive()
-                    keepaliveStartedByAuto = FccKeepaliveService.start(app)
-                    currentCoroutineContext().ensureActive()
-                    log("Auto-FCC: keepalive started (re-applying every 2s)")
-
-                    // Keep the intended Auto-FCC behavior, but make this delay
-                    // a cancellation checkpoint so switching Auto-FCC off does
-                    // not launch DJI Fly from an already-running flow.
-                    delay(500)
-                    update { copy(message = "FCC keepalive started. Launching DJI Fly...") }
-                    log("Auto-FCC: launching DJI Fly")
-                    launchDjiFly()
-                } else {
+                    FccRuntime.tracker.beginHardwareSession()
+                    log("Auto-FCC: controller connected")
+                    val detectedPort = transport.getDetectedPort()
+                    if (detectedPort > 0) {
+                        log("DUML port detected: $detectedPort")
+                    }
+                    val serial = transport.probeSerial(1500)
+                    if (serial.isNotEmpty()) {
+                        aircraftIdentityVerified = true
+                        prefs.edit().putString("aircraft_serial", serial).apply()
+                    } else {
+                        aircraftIdentityVerified = false
+                    }
                     update {
                         copy(
                             status = "connected",
-                            message = "Auto-FCC failed — try manually",
-                            isBusy = false,
-                            busyProgress = 0f
+                            isConnected = true,
+                            aircraftSerial = serial,
+                            message = "Connected. Waiting for Home Point..."
                         )
                     }
-                    log("Auto-FCC: apply failed — try manually")
+                    if (serial.isNotEmpty()) log("Aircraft serial: $serial")
+                } finally {
+                    Port40007Lock.releaseFromLed(portLease)
                 }
+
+                log("Auto-FCC: launching DJI Fly")
+                launchDjiFly()
+                refreshLedStateAfterStartup()
+                update { copy(message = "Waiting for Home Point in DJI Fly...") }
+                log("Auto-FCC: listening for Home Point on one persistent connection")
             } catch (_: CancellationException) {
-                if (keepaliveStartedByAuto) {
-                    FccKeepaliveService.stop(app)
-                    keepaliveStartedByAuto = false
-                    log("Auto-FCC: stopped the keepalive started by the cancelled flow")
-                }
-                log("Auto-FCC: cancelled by user")
+                // The foreground monitor intentionally outlives this ViewModel
+                // and is stopped synchronously by toggleAutoFcc(false).
+                log("Auto-FCC: UI connection flow cancelled")
                 update {
                     copy(
                         status = if (isConnected) "connected" else "disconnected",
@@ -547,8 +541,23 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         log("Connecting to controller...")
 
         runOnIO {
+            var connected = false
+            var portLease: Port40007Lock.Lease? = null
             try {
+                portLease = Port40007Lock.acquireForLed()
+                if (portLease == null) {
+                    update {
+                        copy(
+                            status = "disconnected",
+                            message = "DUML port busy — try Connect again.",
+                            isConnected = false
+                        )
+                    }
+                    log("Connection probe failed to pause the Home Point listener")
+                    return@runOnIO
+                }
                 if (transport.connect()) {
+                    connected = true
                     FccRuntime.tracker.beginHardwareSession()
                     log("Controller connected")
                     val detectedPort = transport.getDetectedPort()
@@ -582,8 +591,10 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     log("Connection failed — is the drone powered on?")
                 }
             } finally {
+                portLease?.let(Port40007Lock::releaseFromLed)
                 hardwareLease.close()
             }
+            if (connected) refreshLedStateAfterStartup()
         }
         return true
     }
@@ -659,8 +670,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             log("Hardware busy — please wait for the current operation to finish.")
             return false
         }
-        // Stop keepalive first — otherwise it re-applies FCC 2 seconds after
-        // we restore CE, undoing the user's intent.
+        // Stop an in-progress Auto-FCC wait before the explicit CE restore.
         if (_state.value.isKeepaliveRunning || FccKeepaliveService.isRunningFlagSet(app)) {
             stopKeepalive()
         }
@@ -701,39 +711,37 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         return true
     }
 
-    // --- FCC Keepalive ---
+    // --- Auto-FCC Home Point monitor ---
 
     /**
-     * Starts a foreground service that re-applies the FCC profile every 2 seconds.
-     * This prevents DJI Fly from resetting the radio back to CE mode when it
-     * connects to the drone. The service runs independently of the Activity
-     * lifecycle so it keeps working when the user switches to DJI Fly.
+     * Starts the foreground Home Point monitor. It applies the full FCC profile
+     * once after Home Point is recorded, then stops itself.
      */
     fun startKeepalive() {
         if (_state.value.isKeepaliveRunning) {
-            log("Keepalive already running")
+            log("Home Point monitor already running")
             return
         }
         try {
             FccKeepaliveService.start(app)
-            log("Started FCC keepalive — re-applying every 2s to prevent CE reset")
+            log("Started Home Point monitor — FCC will apply once after recording")
         } catch (e: Exception) {
-            log("Could not start FCC keepalive: ${e.message}")
+            log("Could not start Home Point monitor: ${e.message}")
         }
     }
 
-    /** Stops the keepalive foreground service. */
+    /** Stops the Home Point foreground monitor. */
     fun stopKeepalive() {
         FccKeepaliveService.stop(app)
-        log("FCC keepalive stopped")
+        log("Home Point monitor stopped")
     }
 
     // --- Launch DJI Fly ---
 
     /**
      * Launches DJI Fly on consumer controllers, with DJI Go 4 and DJI Pilot 2
-     * fallbacks for older/enterprise controllers. The keepalive service keeps
-     * re-applying FCC in the background while the flight app runs.
+     * fallbacks for older/enterprise controllers. Auto-FCC can continue waiting
+     * for Home Point in the background while the flight app runs.
      */
     fun launchDjiFly() {
         val pm = app.packageManager
@@ -903,6 +911,99 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     // --- LED ---
 
+    private fun refreshLedStateAfterStartup() {
+        if (!startupLedReadAttempted.compareAndSet(false, true)) return
+        if (!refreshLedState()) {
+            // No read was started, so a later successful connection may retry.
+            startupLedReadAttempted.set(false)
+        }
+    }
+
+    /** Reads the current aircraft lamp parameter without changing it. */
+    fun refreshLedState(): Boolean {
+        if (!ledOperationBusy.compareAndSet(false, true)) {
+            log("LED busy — please wait.")
+            return false
+        }
+        update {
+            copy(
+                isLedBusy = true,
+                ledState = LedState.UNKNOWN,
+                ledRawValue = null,
+                ledStatus = "Reading LED state..."
+            )
+        }
+        log("Reading LED state...")
+
+        runOnIO {
+            var portLease: Port40007Lock.Lease? = null
+            try {
+                portLease = Port40007Lock.acquireForLed()
+                if (portLease == null) {
+                    update { copy(ledStatus = "LED port busy") }
+                    log("LED read failed to pause the Home Point listener")
+                    return@runOnIO
+                }
+                applyLedReadback(readLedState(DumlTransport()), "LED state unavailable")
+            } catch (e: Exception) {
+                log("LED read error: ${e.message}")
+                update {
+                    copy(
+                        ledState = LedState.UNKNOWN,
+                        ledRawValue = null,
+                        ledStatus = "State unavailable"
+                    )
+                }
+            } finally {
+                portLease?.let(Port40007Lock::releaseFromLed)
+                ledOperationBusy.set(false)
+                update { copy(isLedBusy = false) }
+            }
+        }
+        return true
+    }
+
+    private fun readLedState(ledTransport: DumlTransport): LedReadback? {
+        val request = LedReadbackProtocol.buildRequest()
+        val exchange = ledTransport.sendAndReceiveRaw(
+            frame = request,
+            wireFrame = Profiles.wrapFrame(request),
+            readWindowMs = 2_500,
+            port = DumlTransport.PORT_LED,
+            autoDetectPort = false
+        )
+        return LedReadbackProtocol.parse(exchange.validatedPayload)
+    }
+
+    private fun applyLedReadback(readback: LedReadback?, unavailableMessage: String) {
+        if (readback == null) {
+            update {
+                copy(
+                    ledState = LedState.UNKNOWN,
+                    ledRawValue = null,
+                    ledStatus = unavailableMessage
+                )
+            }
+            log("LED state readback unavailable")
+            return
+        }
+
+        val label = when (readback.state) {
+            LedState.ON -> "ON"
+            LedState.OFF -> "OFF"
+            LedState.PARTIAL -> "PARTIAL (0x%02X)".format(Locale.US, readback.rawValue)
+            LedState.UNKNOWN -> "UNKNOWN"
+        }
+        update {
+            copy(
+                ledState = readback.state,
+                ledRawValue = readback.rawValue,
+                ledStatus = "Verified $label"
+            )
+        }
+        log("LED state read back: $label")
+    }
+
     /**
      * Turns the aircraft arm LEDs on or off.
      * Uses port 40007 (different from the standard 40009 DUML port).
@@ -912,14 +1013,8 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
      * 100ms between writes — matching the reference app's pattern for
      * reliability.
      *
-     * **Does NOT hold HardwareLock.** The LED command targets port 40007
-     * (camera/LED subsystem) while the FCC keepalive targets port 40009
-     * (radio subsystem). They use different ports and different subsystems,
-     * so they can run concurrently without conflict. Holding the lock during
-     * the LED command would block the keepalive for ~1.5s, creating a gap
-     * where DJI Fly could reset the radio to CE. By not holding the lock,
-     * the keepalive continues re-applying FCC throughout the LED command.
-     * Only the [isLedBusy] UI flag prevents double-taps.
+     * **Does NOT hold HardwareLock.** LED uses a dedicated process-wide port
+     * 40007 lease, so it cannot overlap the one-shot Home Point listener.
      *
      * @param on true for LED ON, false for LED OFF
      */
@@ -928,11 +1023,25 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             log("LED busy — please wait.")
             return false
         }
-        update { copy(isLedBusy = true, ledStatus = if (on) "Turning LEDs on..." else "Turning LEDs off...") }
+        update {
+            copy(
+                isLedBusy = true,
+                ledState = LedState.UNKNOWN,
+                ledRawValue = null,
+                ledStatus = if (on) "Turning LEDs on..." else "Turning LEDs off..."
+            )
+        }
         log(if (on) "Turning LEDs on..." else "Turning LEDs off...")
 
         runOnIO {
+            var portLease: Port40007Lock.Lease? = null
             try {
+                portLease = Port40007Lock.acquireForLed()
+                if (portLease == null) {
+                    update { copy(ledStatus = "LED port busy") }
+                    log("LED command failed to pause the Home Point listener")
+                    return@runOnIO
+                }
                 val fileName = if (on) "led_on.json" else "led_off.json"
                 val profile = Profiles.load(app, fileName)
                 log("Loaded LED profile: ${profile.frames.size} frames (port ${profile.port})")
@@ -941,7 +1050,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 // must not share state with the FCC transport on port 40009.
                 val ledTransport = DumlTransport()
 
-                var anySuccess = false
+                var allWritesSucceeded = true
 
                 // 2 connection bursts × 5 writes each = 10 total sends, with
                 // 100ms between writes and 100ms between bursts. Matches the
@@ -958,20 +1067,38 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         port = profile.port
                     )
 
-                    if (success) anySuccess = true
+                    if (!success) allWritesSucceeded = false
                 }
 
-                if (anySuccess) {
-                    update { copy(ledStatus = if (on) "ON command sent" else "OFF command sent") }
-                    log(if (on) "LED ON command written; state not read back" else "LED OFF command written; state not read back")
+                if (!allWritesSucceeded) {
+                    log("LED command transport was incomplete; reading actual state anyway")
                 } else {
-                    update { copy(ledStatus = "Failed — is DJI Fly running?") }
-                    log("LED command failed — make sure DJI Fly is running with aircraft connected")
+                    log(if (on) "LED ON command written; reading state" else "LED OFF command written; reading state")
+                }
+                val readback = readLedState(ledTransport)
+                applyLedReadback(
+                    readback,
+                    if (allWritesSucceeded) {
+                        if (on) "ON command sent; state unknown" else "OFF command sent; state unknown"
+                    } else {
+                        "Command transport incomplete; state unknown"
+                    }
+                )
+                val expectedState = if (on) LedState.ON else LedState.OFF
+                if (readback != null && readback.state != expectedState) {
+                    log("LED verification mismatch: requested ${if (on) "ON" else "OFF"}, read ${readback.state}")
                 }
             } catch (e: Exception) {
                 log("LED error: ${e.message}")
-                update { copy(ledStatus = "Error: ${e.message}") }
+                update {
+                    copy(
+                        ledState = LedState.UNKNOWN,
+                        ledRawValue = null,
+                        ledStatus = "Error: ${e.message}"
+                    )
+                }
             } finally {
+                portLease?.let(Port40007Lock::releaseFromLed)
                 ledOperationBusy.set(false)
                 update { copy(isLedBusy = false) }
             }
@@ -1036,7 +1163,13 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         }
         log("Probing for aircraft serial...")
         runOnIO {
+            var portLease: Port40007Lock.Lease? = null
             try {
+                portLease = Port40007Lock.acquireForLed()
+                if (portLease == null) {
+                    log("Serial probe failed to pause the Home Point listener")
+                    return@runOnIO
+                }
                 val serial = transport.probeSerial(2000)
                 if (serial.isNotEmpty()) {
                     aircraftIdentityVerified = true
@@ -1048,6 +1181,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     log("No serial detected — is the aircraft powered on?")
                 }
             } finally {
+                portLease?.let(Port40007Lock::releaseFromLed)
                 hardwareLease.close()
             }
         }
@@ -1287,12 +1421,19 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             "fcc_sequence_written" to current.isFccEnabled,
             "fcc_write_state" to if (current.isFccEnabled) "written_current_process" else "unknown",
             "fcc_last_write_at_ms" to current.fccLastWriteAtMs,
+            "fcc_last_attempt_succeeded" to runtime.lastAttemptSucceeded,
             "auto_fcc" to current.autoFcc,
             "keepalive_running" to current.isKeepaliveRunning,
             "keepalive_status" to runtime.keepaliveStatus.name.lowercase(Locale.US),
             "keepalive_requested" to FccKeepaliveService.isRunningFlagSet(app),
+            "home_point_monitor_running" to current.isKeepaliveRunning,
+            "home_point_monitor_requested" to FccKeepaliveService.isRunningFlagSet(app),
+            "home_point_monitor_status" to runtime.keepaliveStatus.name.lowercase(Locale.US),
+            "home_point_monitor_error" to runtime.error,
             "hardware_busy" to current.isHardwareBusy,
             "led_busy" to current.isLedBusy,
+            "led_state" to current.ledState.name.lowercase(Locale.US),
+            "led_value" to current.ledRawValue,
             "led_status" to current.ledStatus,
             "aircraft_serial" to current.aircraftSerial,
             "device_info" to current.deviceInfo,
@@ -1343,12 +1484,15 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 "ce_restore" -> acceptedHardware(command, requireConnected = true) { disableFcc() }
                 "keepalive_start" -> accepted(command) { startKeepalive() }
                 "keepalive_stop" -> accepted(command) { stopKeepalive() }
+                "home_point_wait_start" -> accepted(command) { startKeepalive() }
+                "home_point_wait_stop" -> accepted(command) { stopKeepalive() }
                 "auto_fcc_on" -> accepted(command) {
                     if (!_state.value.autoFcc) toggleAutoFcc()
                 }
                 "auto_fcc_off" -> accepted(command) {
                     if (_state.value.autoFcc) toggleAutoFcc()
                 }
+                "led_read" -> acceptedBoolean(command, refreshLedState(), "led_busy")
                 "led_on" -> acceptedBoolean(command, setLed(true), "led_busy")
                 "led_off" -> acceptedBoolean(command, setLed(false), "led_busy")
                 "device_info" -> acceptedHardware(command, requireConnected = true) { queryDeviceInfo() }
@@ -1436,6 +1580,16 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         if (writeLease == null) {
             lanDiagnosticBusy.set(false)
             return lanError(409, "hardware_busy")
+        }
+        val portLease = if (port == DumlTransport.PORT_LED) {
+            Port40007Lock.acquireForExternalBlocking()
+        } else {
+            null
+        }
+        if (port == DumlTransport.PORT_LED && portLease == null) {
+            writeLease.close()
+            lanDiagnosticBusy.set(false)
+            return lanError(409, "port_40007_busy")
         }
 
         val commandLabel = "%02x:%02x".format(Locale.US, cmdSet, cmdId)
@@ -1555,6 +1709,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 }
             }
         } finally {
+            portLease?.let(Port40007Lock::releaseFromLed)
             writeLease.close()
             lanDiagnosticBusy.set(false)
         }
@@ -1568,6 +1723,15 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             return lanError(409, "diagnostic_busy")
         }
         log("LAN DUML capture started: port=$port duration=${durationMs}ms max=$maxFrames")
+        val portLease = if (port == DumlTransport.PORT_LED) {
+            Port40007Lock.acquireForExternalBlocking()
+        } else {
+            null
+        }
+        if (port == DumlTransport.PORT_LED && portLease == null) {
+            lanDiagnosticBusy.set(false)
+            return lanError(409, "port_40007_busy")
+        }
 
         return try {
             val frames = transport.captureFrames(
@@ -1606,6 +1770,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 )
             )
         } finally {
+            portLease?.let(Port40007Lock::releaseFromLed)
             lanDiagnosticBusy.set(false)
         }
     }
@@ -1622,6 +1787,16 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         if (writeLease == null) {
             lanDiagnosticBusy.set(false)
             return lanError(409, "hardware_busy")
+        }
+        val portLease = if (port == DumlTransport.PORT_LED) {
+            Port40007Lock.acquireForExternalBlocking()
+        } else {
+            null
+        }
+        if (port == DumlTransport.PORT_LED && portLease == null) {
+            writeLease.close()
+            lanDiagnosticBusy.set(false)
+            return lanError(409, "port_40007_busy")
         }
 
         log("LAN wire exchange started: port=$port tx=${wire.size}B window=${durationMs}ms max=$maxBytes")
@@ -1665,6 +1840,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 )
             }
         } finally {
+            portLease?.let(Port40007Lock::releaseFromLed)
             writeLease.close()
             lanDiagnosticBusy.set(false)
         }
