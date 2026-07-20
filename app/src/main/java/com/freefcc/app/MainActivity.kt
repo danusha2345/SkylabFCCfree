@@ -91,15 +91,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    override fun onStop() {
-        super.onStop()
-        viewModel.onAppBackgrounded()
-    }
-
-    override fun onStart() {
-        super.onStart()
-        viewModel.onAppForegrounded()
-    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -230,7 +221,15 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                     ProgressDisplay(state.busyProgress, state.message)
                 }
                 !state.isConnected -> {
-                    GlowButton("Connect", Cyan, enabled = !state.isHardwareBusy) { viewModel.connect() }
+                    val connectLabel = if (state.status == "monitor_failed") "Retry Connect" else "Connect"
+                    if (state.message.isNotEmpty()) {
+                        BodyText(state.message)
+                        Spacer(Modifier.height(8.dp))
+                    }
+                    GlowButton(connectLabel, Cyan, enabled = !state.isHardwareBusy) { viewModel.connect() }
+                }
+                state.isKeepaliveRunning -> {
+                    BodyText("Waiting for current Home Point. FCC will be applied automatically.", Amber)
                 }
                 state.isFccEnabled -> {
                     BodyText("FCC request was written. RF mode is unknown; verify in DJI Fly.", Amber)
@@ -400,36 +399,6 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
             }
         }
 
-        // Auto-FCC toggle card
-        Spacer(Modifier.height(SectionSpacing))
-        GlowCard {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Auto-FCC", color = TextWhite, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "Wait for Home Point, apply FCC once, then stop.",
-                        color = TextGray,
-                        fontSize = 12.sp,
-                        lineHeight = 17.sp
-                    )
-                }
-                Spacer(Modifier.width(16.dp))
-                Switch(
-                    checked = state.autoFcc,
-                    onCheckedChange = { viewModel.toggleAutoFcc() },
-                    colors = SwitchDefaults.colors(
-                        checkedThumbColor = Cyan,
-                        checkedTrackColor = Cyan.copy(0.3f),
-                        uncheckedThumbColor = TextGray,
-                        uncheckedTrackColor = BgLight
-                    )
-                )
-            }
-        }
     }
 }
 // ═══════════════════════════════════════════════════════════════════════

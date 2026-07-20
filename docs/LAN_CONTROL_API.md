@@ -57,11 +57,12 @@ curl -sS -X POST \
 
 Available actions are returned by `/api/commands`. Long-running application
 actions return HTTP `202 Accepted`; poll `/api/status` and `/logs` for their
-result. The list includes connection, FCC/CE, Home Point wait (with legacy
-`keepalive_start/stop` aliases), Auto-FCC, LED, device
-info, serial and 4G probes, updater actions, and flight-app launch. Busy hardware
-returns `409`; commands that require a prior controller connection or update
-check return `412`.
+result. A successful `connect` automatically starts the one-shot Home Point
+wait; explicit wait start/stop actions and the legacy `keepalive_start/stop`
+aliases remain available for diagnostics. The list also includes FCC/CE, LED,
+device info, serial and 4G probes, updater actions, and flight-app launch. Busy
+hardware returns `409`; commands that require a prior controller connection or
+update check return `412`.
 
 `fcc_enabled` in `/api/status` is always `null`: the localhost proxy does not
 provide a physical RF-region readback. `fcc_sequence_written` and

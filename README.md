@@ -34,7 +34,7 @@ A free and open-source Android app that unlocks FCC mode, sends experimental 4G 
 | **4G Activation** | Sends 4G activation frames to the aircraft (serial read at runtime) — no status readback, experimental |
 | **LED Control** | Reads the current lamp state and verifies it after LED on/off commands (DJI Fly and a linked aircraft are required) |
 | **Device Info** | Attempts to query hardware and firmware version; response availability depends on the controller/proxy path |
-| **Auto-FCC** | Waits for Home Point, applies the full FCC profile once, then stops its listener |
+| **Connect → Home Point → FCC** | After Connect, waits for the current recorded Home Point, applies the full FCC profile once, then stops its listener |
 | **Auto-Updater** | Checks `danusha2345/FreeFCC` GitHub Releases and lets you download/install from the app |
 | **LAN Diagnostic API** | Logs, live status, allowlisted app actions, and raw DUML request/response over HTTP on the controller's RFC1918 Wi-Fi address |
 | **Local by default** | Internet is used for update checks/downloads; the LAN API stays inside the current Wi-Fi subnet and can be disabled in the Log tab |
@@ -80,13 +80,13 @@ The captured 4G profile is experimental and was derived from systems using exter
 
 Validated upstream on DJI RC2 firmware v10.00.0700; this fork was additionally exercised live on RC2 `rc331`. Future firmware can change the local proxy or DUML routing, so compatibility must be rechecked rather than assumed.
 
-The former two-second FCC keepalive is no longer used. Auto-FCC holds one
-port-`40007` listener until a CRC-valid `03:44` stream shows a fresh
-`not recorded → recorded` Home Point transition, then closes it and performs
-one complete FCC apply. If an established stream disconnects after the same
-session already reported `not recorded`, Auto-FCC permits exactly one bounded
-reconnect with the same gate. An unarmed or second disconnect stops fail-closed,
-so there is no disruptive reconnect loop.
+The former two-second FCC keepalive is no longer used. After a successful
+**Connect**, FreeFCC holds one port-`40007` listener until a CRC-valid `03:44`
+push reports the current Home Point as recorded, then closes the listener and
+performs one complete FCC apply. A prior `not recorded` state is not required.
+If an established stream disconnects after reporting `not recorded`, one
+bounded recovery is permitted; otherwise disconnects stop fail-closed, so there
+is no disruptive reconnect loop.
 
 If you test it on a model or firmware version not listed here, please [open an issue](https://github.com/danusha2345/FreeFCC/issues) and let me know.
 
@@ -135,11 +135,11 @@ Swipe from the right edge to open ATV Launcher. Open the Files app, find your fo
 
 1. Power on the drone and link it to the controller
 2. Open FreeFCC and tap **Connect**
-3. For automatic operation, enable **Auto-FCC** before Home Point is recorded. It opens DJI Fly, waits for a fresh Home Point transition, then sends the full FCC profile once. Manual **Send FCC Request** remains available for testing or recovery after Home Point.
+3. FreeFCC now continues automatically after **Connect**: it waits until a valid current Home Point status is `recorded`, then sends the full FCC profile once. It does not launch DJI Fly automatically. Manual **Send FCC Request** remains available for testing or recovery.
 4. For 4G diagnostics, tap **Probe 4G Endpoint** first. This is read-only and only checks whether `/duss/mb/0x205` is reachable. **Send 4G Activation Frames** remains experimental and confirms writes only, not activation.
    > **Note:** The integrated eSIM path on DJI Avata 360 is not yet proven compatible with the captured external-module profile. Please attach the LAN logs to an [issue](https://github.com/danusha2345/FreeFCC/issues) when testing.
 5. To request CE restore, tap **Send CE Restore**. The app confirms transport writes only; verify the actual RF mode in DJI Fly.
-6. The LED card reads state once after connection and verifies it after **LED ON** or **LED OFF**. Use refresh for one additional on-demand read.
+6. The LED card verifies state after **LED ON** or **LED OFF**. Use refresh for an on-demand read.
 7. The **Info** tab lets you query the controller's hardware and firmware version
 8. The **Log** tab starts the LAN diagnostic API by default. It uses unencrypted HTTP and a fixed shared password. A UDP beacon broadcasts only the controller IP and port across the current Wi-Fi subnet; it does not include the password, logs, or command payloads. Disable the bridge on untrusted Wi-Fi. See [LAN Control API](docs/LAN_CONTROL_API.md).
 

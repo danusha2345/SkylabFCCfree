@@ -63,12 +63,25 @@ Auto-FCC рабочим.
 | Corpus audit | 32 active `03:44` exchanges: 0 matching responses; 42/42 обнаруженных `03:44` — passive `cmdType=0x00`, route `0x0e → 0x02` |
 | Transport change | Primer повторяется раз в 1000 ms в том же socket; при EOF reconnect запрещён |
 | Focused tests | HomePointMonitor tests проходят, включая same-socket refresh при telemetry и read timeout |
-| RC2 runtime | PENDING: socket живёт >10 s без link drop; затем fresh `false → true`, один full FCC apply |
+| RC2 runtime | PENDING: socket живёт >10 s без link drop; текущий `Home Point=true` вызывает один full FCC apply |
 
 После установки опубликованного APK Android metadata была `1.5.20`, но UI/LAN
 продолжали показывать `1.5.19`: `APP_VERSION` оставался отдельной hardcoded
 строкой. В `1.5.21` единственным источником версии стал
 `BuildConfig.VERSION_NAME`; same-socket transport-код `1.5.20` не менялся.
+
+Live A/B `1.5.21` с уже записанным Home Point: manual monitor start открыл один
+socket и повторил буквально тот же primer через 1 s, но до status check на 2-й
+секунде получил terminal disconnect (`connection=1, armed=false,
+recovery=false`). FCC не отправлялся, reconnect отсутствовал. Пользователь не
+заметил физического обрыва aircraft/controller link; FreeFCC оставался открыт.
+
+В `1.5.22` пользовательский flow: открыть FreeFCC → нажать `Connect` → ждать
+текущий CRC-valid `Home Point=true` → один полный FCC apply. Отдельный Auto-FCC
+toggle, boot autostart и автоматический launch DJI Fly исключены. Listener не
+требует предварительного `false`. Transport меняет ровно одну переменную
+относительно отрицательного A/B: каждый 1 Hz refresh в том же socket получает
+следующий DUML sequence и новый CRC.
 
 Полный inventory transports, command frequencies, payload evidence и privacy
 границы: [DUML_STREAM_MAP.md](DUML_STREAM_MAP.md).

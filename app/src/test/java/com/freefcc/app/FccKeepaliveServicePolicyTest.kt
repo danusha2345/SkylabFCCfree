@@ -8,9 +8,9 @@ import org.junit.Test
 
 class FccKeepaliveServicePolicyTest {
     @Test
-    fun startAndStickyRestartPromoteBeforeAnyEarlyExit() {
+    fun onlyExplicitStartRequiresForegroundPromotion() {
         assertTrue(FccKeepaliveService.requiresImmediateForeground(FccKeepaliveService.ACTION_START))
-        assertTrue(FccKeepaliveService.requiresImmediateForeground(null))
+        assertFalse(FccKeepaliveService.requiresImmediateForeground(null))
     }
 
     @Test

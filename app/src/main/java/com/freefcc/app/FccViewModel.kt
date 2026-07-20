@@ -131,8 +131,6 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             "keepalive_stop",
             "home_point_wait_start",
             "home_point_wait_stop",
-            "auto_fcc_on",
-            "auto_fcc_off",
             "led_read",
             "led_on",
             "led_off",
@@ -225,6 +223,12 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 update {
                     copy(
                         isKeepaliveRunning = keepaliveActive,
+                        isConnected = when (runtime.keepaliveStatus) {
+                            KeepaliveRuntimeStatus.STARTING,
+                            KeepaliveRuntimeStatus.RUNNING -> true
+                            KeepaliveRuntimeStatus.FAILED -> false
+                            KeepaliveRuntimeStatus.STOPPED -> isConnected
+                        },
                         isFccEnabled = hasWriteEvidence,
                         fccLastWriteAtMs = runtime.lastSuccessfulWriteAtMs,
                         message = if (
@@ -233,7 +237,8 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         ) runtime.error else message,
                         status = when {
                             status == "applying" || status == "restoring" -> status
-                            runtime.keepaliveStatus == KeepaliveRuntimeStatus.FAILED && isConnected -> "connected"
+                            runtime.keepaliveStatus == KeepaliveRuntimeStatus.FAILED -> "monitor_failed"
+                            keepaliveActive -> "waiting_home_point"
                             hasWriteEvidence && isConnected -> "fcc_written"
                             !hasWriteEvidence && status == "fcc_written" && isConnected -> "connected"
                             else -> status
@@ -268,32 +273,29 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         if (initialized) return
         initialized = true
         val model = try { Build.DEVICE } catch (_: Exception) { "unknown" }
-        val autoEnabled = prefs.getBoolean("auto_fcc", false)
+        prefs.edit().remove("auto_fcc").apply()
         // v1.5.12 and earlier persisted a write as if it were current FCC
         // state. Ignore and remove that stale cross-process evidence.
         prefs.edit().remove("fcc_sequence_written").apply()
-        // `auto_fcc` is durable user intent. The keepalive flag is only an
-        // in-flight marker and must never resurrect Auto-FCC by itself.
         val keepaliveRequested = FccKeepaliveService.isRunningFlagSet(app)
-        val recoveryAction = PersistentAutoFccRecoveryPolicy.resolve(
-            autoEnabled = autoEnabled,
-            inFlightMarker = keepaliveRequested
-        )
-        if (recoveryAction == PersistentAutoFccRecoveryAction.CLEAR_STALE) {
-            runCatching { FccKeepaliveService.stop(app) }
-                .onSuccess { log("Cleared stale Home Point monitor while Auto-FCC is off") }
-                .onFailure { log("Could not clear stale Home Point monitor: ${it.message}") }
-        }
-        val effectiveKeepaliveRequested = autoEnabled && keepaliveRequested
         val runtime = FccRuntime.tracker.state.value
+        val liveMonitor = keepaliveRequested &&
+            (runtime.keepaliveStatus == KeepaliveRuntimeStatus.STARTING ||
+                runtime.keepaliveStatus == KeepaliveRuntimeStatus.RUNNING)
+        if (keepaliveRequested && !liveMonitor) {
+            FccKeepaliveService.clearStaleRequest(app)
+            log("Cleared stale Home Point monitor marker")
+        }
         update {
             copy(
                 controllerModel = model,
-                status = "disconnected",
-                autoFcc = autoEnabled,
-                isKeepaliveRunning = effectiveKeepaliveRequested,
+                status = if (liveMonitor) "connected" else "disconnected",
+                autoFcc = false,
+                isConnected = liveMonitor,
+                isKeepaliveRunning = liveMonitor,
                 isFccEnabled = runtime.lastSuccessfulWriteAtMs != null,
-                fccLastWriteAtMs = runtime.lastSuccessfulWriteAtMs
+                fccLastWriteAtMs = runtime.lastSuccessfulWriteAtMs,
+                message = if (liveMonitor) "Waiting for current Home Point..." else ""
             )
         }
         log("FreeFCC v$APP_VERSION started on $model")
@@ -302,60 +304,12 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             setLanLoggingEnabled(true)
         }
 
-        if (autoEnabled) {
-            log("Auto-FCC enabled — connecting and waiting for Home Point...")
-            autoConnectAndApply()
-        } else {
-            restoreConnectionIndicator()
+        if (liveMonitor) {
+            startupLedReadGate.disable()
+            log("Existing Home Point monitor retained")
         }
 
         checkForUpdates()
-    }
-
-    /**
-     * Re-checks the local DUML proxy after the Activity/process is recreated.
-     * This restores the connection indicator without applying FCC mode or
-     * launching DJI Fly when Auto-FCC is disabled.
-     */
-    private fun restoreConnectionIndicator() {
-        update { copy(status = "connecting", message = "Checking DUML proxy...") }
-        runOnIO {
-            if (transport.connect()) {
-                val detectedPort = transport.getDetectedPort()
-                val keepaliveRequested = _state.value.isKeepaliveRunning
-                val lastWriteAtMs = FccRuntime.tracker.state.value.lastSuccessfulWriteAtMs
-                val fccSequenceWritten = lastWriteAtMs != null
-                update {
-                    copy(
-                        status = if (fccSequenceWritten) "fcc_written" else "connected",
-                        isConnected = true,
-                        isFccEnabled = fccSequenceWritten,
-                        fccLastWriteAtMs = lastWriteAtMs,
-                        message = if (fccSequenceWritten && keepaliveRequested) {
-                            "FCC sequence written; Home Point monitor active — verify in DJI Fly."
-                        } else if (fccSequenceWritten) {
-                            "FCC sequence was written — verify the region in DJI Fly."
-                        } else {
-                            "DUML proxy ready."
-                        }
-                    )
-                }
-                log("DUML proxy restored after app reopen")
-                if (!_state.value.autoFcc) refreshLedStateAfterStartup()
-                if (detectedPort > 0) {
-                    log("DUML port detected: $detectedPort")
-                }
-            } else {
-                update {
-                    copy(
-                        status = "disconnected",
-                        isConnected = false,
-                        message = "DUML proxy not available. Tap Connect to retry."
-                    )
-                }
-                log("DUML proxy unavailable after app reopen")
-            }
-        }
     }
 
     // --- LAN logging ---
@@ -557,7 +511,11 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     update {
                         copy(
                             status = "connected",
-                            message = if (serial.isNotEmpty()) "Connected — $serial" else "Connected. Ready to apply FCC.",
+                            message = if (serial.isNotEmpty()) {
+                                "Connected — $serial. Checking Home Point..."
+                            } else {
+                                "Connected — checking Home Point..."
+                            },
                             isConnected = true,
                             aircraftSerial = serial
                         )
@@ -577,7 +535,12 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 portLease?.let(Port40007Lock::releaseFromLed)
                 hardwareLease.close()
             }
-            if (connected && !_state.value.autoFcc) refreshLedStateAfterStartup()
+            if (connected) {
+                startupLedReadGate.disable()
+                if (startKeepalive()) {
+                    log("Connect completed — waiting for current Home Point before FCC")
+                }
+            }
         }
         return true
     }
@@ -700,16 +663,25 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
      * Starts the foreground Home Point monitor. It applies the full FCC profile
      * once after Home Point is recorded, then stops itself.
      */
-    fun startKeepalive() {
+    fun startKeepalive(): Boolean {
         if (_state.value.isKeepaliveRunning) {
             log("Home Point monitor already running")
-            return
+            return true
         }
-        try {
+        return try {
             FccKeepaliveService.start(app)
             log("Started Home Point monitor — FCC will apply once after recording")
+            true
         } catch (e: Exception) {
             log("Could not start Home Point monitor: ${e.message}")
+            update {
+                copy(
+                    status = "monitor_failed",
+                    isConnected = false,
+                    message = "Could not start Home Point monitor. Tap Connect to retry."
+                )
+            }
+            false
         }
     }
 
@@ -1490,12 +1462,6 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 "keepalive_stop" -> accepted(command) { stopKeepalive() }
                 "home_point_wait_start" -> accepted(command) { startKeepalive() }
                 "home_point_wait_stop" -> accepted(command) { stopKeepalive() }
-                "auto_fcc_on" -> accepted(command) {
-                    if (!_state.value.autoFcc) toggleAutoFcc()
-                }
-                "auto_fcc_off" -> accepted(command) {
-                    if (_state.value.autoFcc) toggleAutoFcc()
-                }
                 "led_read" -> acceptedBoolean(command, refreshLedState(), "led_busy")
                 "led_on" -> acceptedBoolean(command, setLed(true), "led_busy")
                 "led_off" -> acceptedBoolean(command, setLed(false), "led_busy")

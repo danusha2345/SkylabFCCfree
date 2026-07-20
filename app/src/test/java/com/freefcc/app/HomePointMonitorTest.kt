@@ -11,15 +11,12 @@ import org.junit.Test
 
 class HomePointMonitorTest {
     @Test
-    fun recordedSnapshotRequiresResetAndRisingEdge() {
+    fun recordedSnapshotCompletesWithoutPriorFalse() {
         val gate = HomePointSessionGate()
 
-        assertFalse(gate.observe(true))
-        assertFalse(gate.observe(true))
-        assertFalse(gate.observe(false))
-        assertFalse(gate.observe(false))
         assertTrue(gate.observe(true))
         assertFalse(gate.observe(true))
+        assertFalse(gate.observe(false))
     }
 
     @Test
@@ -93,7 +90,7 @@ class HomePointMonitorTest {
     }
 
     @Test
-    fun refreshesSameProbeOnSameConnectionWhileTelemetryIsFlowing() {
+    fun refreshesNextProbeOnSameConnectionWhileTelemetryIsFlowing() {
         val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         val serverError = AtomicReference<Throwable>()
         val firstProbe = AtomicReference<ByteArray>()
@@ -133,7 +130,7 @@ class HomePointMonitorTest {
         assertFalse(thread.isAlive)
         serverError.get()?.let { throw AssertionError("server failed", it) }
         assertEquals(HomePointWaitResult.RECORDED, result)
-        assertTrue(firstProbe.get().contentEquals(refreshedProbe.get()))
+        assertSequentialProbes(firstProbe.get(), refreshedProbe.get())
     }
 
     @Test
@@ -171,7 +168,7 @@ class HomePointMonitorTest {
         assertFalse(thread.isAlive)
         serverError.get()?.let { throw AssertionError("server failed", it) }
         assertEquals(HomePointWaitResult.RECORDED, result)
-        assertTrue(firstProbe.get().contentEquals(refreshedProbe.get()))
+        assertSequentialProbes(firstProbe.get(), refreshedProbe.get())
     }
 
     @Test
@@ -214,7 +211,7 @@ class HomePointMonitorTest {
     }
 
     @Test
-    fun initialRecordedSnapshotThenEofDoesNotCompleteWait() {
+    fun initialRecordedSnapshotCompletesBeforeEof() {
         val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         val serverError = AtomicReference<Throwable>()
         val thread = Thread {
@@ -238,7 +235,7 @@ class HomePointMonitorTest {
 
         thread.join(2_000)
         serverError.get()?.let { throw AssertionError("server failed", it) }
-        assertEquals(HomePointWaitResult.STREAM_DISCONNECTED, result)
+        assertEquals(HomePointWaitResult.RECORDED, result)
     }
 
     @Test
@@ -306,7 +303,7 @@ class HomePointMonitorTest {
     }
 
     @Test
-    fun sessionGateSurvivesCooperativeReopenAndRequiresFreshEdge() {
+    fun sessionGateSurvivesCooperativeReopenAndAcceptsCurrentTrue() {
         val firstServer = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         val firstThread = Thread {
             firstServer.use { listener ->
@@ -334,7 +331,6 @@ class HomePointMonitorTest {
                 listener.accept().use { socket ->
                     socket.getInputStream().read(ByteArray(128))
                     socket.getOutputStream().apply {
-                        write(Profiles.wrapFrame(homePointFrame(0x0046)))
                         write(Profiles.wrapFrame(homePointFrame(0x0047)))
                         flush()
                     }
@@ -399,5 +395,27 @@ class HomePointMonitorTest {
             offset += count
         }
         return result
+    }
+
+    private fun assertSequentialProbes(first: ByteArray, second: ByteArray) {
+        assertFalse(first.contentEquals(second))
+        assertTrue(first.copyOfRange(0, 14).contentEquals(second.copyOfRange(0, 14)))
+        assertTrue(first.copyOfRange(16, 19).contentEquals(second.copyOfRange(16, 19)))
+
+        val firstSequence = (first[14].toInt() and 0xFF) or
+            ((first[15].toInt() and 0xFF) shl 8)
+        val secondSequence = (second[14].toInt() and 0xFF) or
+            ((second[15].toInt() and 0xFF) shl 8)
+        assertEquals((firstSequence + 1) and 0xFFFF, secondSequence)
+
+        for (wire in listOf(first, second)) {
+            val inner = wire.copyOfRange(8, wire.size)
+            assertEquals(DumlBuilder.crc8(inner, 0, 3), inner[3].toInt() and 0xFF)
+            assertEquals(
+                DumlBuilder.crc16(inner, 0, inner.size - 2),
+                (inner[inner.lastIndex - 1].toInt() and 0xFF) or
+                    ((inner[inner.lastIndex].toInt() and 0xFF) shl 8)
+            )
+        }
     }
 }

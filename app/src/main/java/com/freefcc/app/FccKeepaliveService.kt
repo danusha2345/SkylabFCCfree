@@ -77,9 +77,8 @@ class FccKeepaliveService : Service() {
                 if (request.newlyRequested) FccRuntime.tracker.serviceFailed(e.message)
                 throw e
             }
-            // Persist the user's intent only after Android accepted the
-            // foreground-service start request. A transient start restriction
-            // must not manufacture a new persistent request.
+            // Keep only an in-flight marker after Android accepts the explicit
+            // request. The service is non-sticky and this marker never restarts it.
             preferences.edit().putBoolean(PREF_KEEPALIVE, true).apply()
             return !hadPersistentRequest
         }
@@ -113,7 +112,16 @@ class FccKeepaliveService : Service() {
             context.startService(intent)
         }
 
-        /** Returns whether the service should be running, based on the persistent flag. */
+        /** Clears an obsolete in-flight marker without starting the service. */
+        @Synchronized
+        fun clearStaleRequest(context: Context) {
+            requestGate.cancel()
+            context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(PREF_KEEPALIVE, false).apply()
+            FccRuntime.tracker.serviceStopped()
+        }
+
+        /** Returns whether the explicit one-shot request is currently marked in flight. */
         fun isRunningFlagSet(context: Context): Boolean =
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(PREF_KEEPALIVE, false)
@@ -127,7 +135,7 @@ class FccKeepaliveService : Service() {
         }
 
         internal fun requiresImmediateForeground(action: String?): Boolean =
-            action != ACTION_STOP
+            action == ACTION_START
 
         internal fun deliveredStartGeneration(action: String?, encodedGeneration: Long): Long? =
             encodedGeneration.takeIf { action == ACTION_START && it > 0L }
@@ -151,9 +159,8 @@ class FccKeepaliveService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Every ACTION_START (and sticky null-intent restart) originates from a
-        // foreground-service start contract. Promote before any early exit so
-        // Android never tears down an unpromoted fgRequired service.
+        // Only an explicit ACTION_START has a foreground-service start contract.
+        // Null-intent restarts fail closed below and never resurrect the monitor.
         if (requiresImmediateForeground(intent?.action)) {
             startForeground(NOTIFICATION_ID, createNotification())
         }
@@ -165,6 +172,16 @@ class FccKeepaliveService : Service() {
 
     /** Runs under the same monitor as companion start()/stop(). */
     private fun onStartCommandLocked(intent: Intent?, startId: Int): Int {
+        if (intent == null) {
+            requestGate.cancel()
+            keepaliveJob?.cancel()
+            getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                .edit().putBoolean(PREF_KEEPALIVE, false).apply()
+            FccRuntime.tracker.serviceStopped()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelfResult(startId)
+            return START_NOT_STICKY
+        }
         when (intent?.action) {
             ACTION_STOP -> {
                 // A newer start() may already have superseded this queued
@@ -175,7 +192,7 @@ class FccKeepaliveService : Service() {
                     // ACTION_START is delivered. Cancel the superseded worker
                     // now and let its completion wait for that delivery.
                     keepaliveJob?.cancel()
-                    return START_STICKY
+                    return START_NOT_STICKY
                 }
                 keepaliveJob?.cancel()
                 stopForeground(STOP_FOREGROUND_REMOVE)
@@ -195,41 +212,24 @@ class FccKeepaliveService : Service() {
                         if (requestGate.currentGeneration() != null) {
                             // A newer request exists, but only its own exact
                             // ACTION_START may deliver and launch it.
-                            return START_STICKY
-                        }
-                        if (isPersistentAutoRequest(this)) {
-                            // Android may deliver a pending start in a fresh
-                            // process. The encoded generation belonged to the
-                            // dead process; create and deliver a new local one
-                            // only when the persistent request still exists.
-                            requestGate.markDelivered(requestGate.restoreRequested())
-                        } else {
-                            keepaliveJob?.cancel()
-                            getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
-                                .edit().putBoolean(PREF_KEEPALIVE, false).apply()
-                            stopForeground(STOP_FOREGROUND_REMOVE)
-                            FccRuntime.tracker.serviceStopped()
-                            stopSelfResult(startId)
                             return START_NOT_STICKY
                         }
-                    }
-                } else {
-                    // Null-intent sticky restart after a process/service kill.
-                    // In a new process the persistent flag is the desired state.
-                    val requested = isPersistentAutoRequest(this)
-                    if (requested) {
-                        requestGate.markDelivered(requestGate.restoreRequested())
-                    } else {
-                        requestGate.cancel()
-                    }
-                    if (!requested) {
+                        keepaliveJob?.cancel()
                         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                             .edit().putBoolean(PREF_KEEPALIVE, false).apply()
-                        FccRuntime.tracker.serviceStopped()
                         stopForeground(STOP_FOREGROUND_REMOVE)
+                        FccRuntime.tracker.serviceStopped()
                         stopSelfResult(startId)
                         return START_NOT_STICKY
                     }
+                } else {
+                    requestGate.cancel()
+                    getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        .edit().putBoolean(PREF_KEEPALIVE, false).apply()
+                    FccRuntime.tracker.serviceStopped()
+                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopSelfResult(startId)
+                    return START_NOT_STICKY
                 }
                 if (requestGate.currentGeneration() == null) {
                     FccRuntime.tracker.serviceStopped()
@@ -251,7 +251,7 @@ class FccKeepaliveService : Service() {
                 startKeepaliveLoop(startId)
             }
         }
-        return START_STICKY
+        return START_NOT_STICKY
     }
 
     private fun startKeepaliveLoop(startId: Int): Unit = synchronized(Companion) {
@@ -315,9 +315,9 @@ class FccKeepaliveService : Service() {
                         // Reopening an established 40007 stream repeatedly was
                         // proven to disrupt the aircraft/controller link.
                         monitorFailure = if (waitResult == HomePointWaitResult.STREAM_DISCONNECTED) {
-                            "Home Point stream disconnected; reopen FreeFCC or toggle Auto-FCC to retry"
+                            "Home Point stream disconnected; tap Connect to retry"
                         } else {
-                            "Home Point stream unavailable; reopen FreeFCC or toggle Auto-FCC to retry"
+                            "Home Point stream unavailable; tap Connect to retry"
                         }
                         monitorFailure += " [connection=$monitorConnectionOrdinal, armed=$sessionArmed, recovery=$armedStreamReconnectUsed]"
                         break
@@ -442,7 +442,7 @@ class FccKeepaliveService : Service() {
     private fun createNotificationChannel() {
         val channel = NotificationChannel(
             CHANNEL_ID,
-            "Auto-FCC",
+            "Home Point → FCC",
             NotificationManager.IMPORTANCE_LOW
         ).apply {
             description = "Waits for Home Point before applying FCC"

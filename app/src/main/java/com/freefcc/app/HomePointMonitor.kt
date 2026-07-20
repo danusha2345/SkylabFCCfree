@@ -12,7 +12,7 @@ internal enum class HomePointWaitResult {
     STOPPED
 }
 
-/** Requires a fresh unrecorded -> recorded edge for the current request. */
+/** Accepts current recorded state; an observed false only arms safe recovery. */
 internal class HomePointSessionGate {
     private var armed = false
     private var triggered = false
@@ -24,7 +24,6 @@ internal class HomePointSessionGate {
             armed = true
             return false
         }
-        if (!armed) return false
         triggered = true
         return true
     }
@@ -161,10 +160,11 @@ internal class HomePointMonitor(
             socket.tcpNoDelay = true
             socket.soTimeout = 250
 
-            // Live captures show 03:44 only as a passive push. Repeating the
-            // same primer on this socket refreshes the broker window without
-            // the aircraft-link disruption caused by opening new connections.
-            val wireProbe = Profiles.wrapFrame(HomePointProtocol.buildProbe())
+            // Live captures show 03:44 only as a passive push. Try a fresh
+            // primer sequence on this socket without the aircraft-link disruption
+            // caused by opening new connections; live proof is still required.
+            val probeBuilder = DumlBuilder()
+            var wireProbe = Profiles.wrapFrame(HomePointProtocol.buildProbe(probeBuilder))
             val output = socket.getOutputStream()
             if (!shouldContinue()) return HomePointWaitResult.STOPPED
             output.apply {
@@ -180,6 +180,7 @@ internal class HomePointMonitor(
                 val now = System.nanoTime()
                 if (now >= nextRefreshNanos) {
                     if (!shouldContinue()) return HomePointWaitResult.STOPPED
+                    wireProbe = Profiles.wrapFrame(HomePointProtocol.buildProbe(probeBuilder))
                     output.write(wireProbe)
                     output.flush()
                     nextRefreshNanos = now + refreshIntervalNanos
