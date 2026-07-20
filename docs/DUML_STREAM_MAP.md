@@ -6,6 +6,10 @@ Scope: DJI RC2 `rc331` + Avata 360/O4, FreeFCC `1.5.14`, linked aircraft,
 DJI Fly и indoor GPS spoof. Это evidence-карта текущей связки, а не обещание
 одинакового layout на всех DJI моделях.
 
+Отдельный размеченный corpus DJI Air 3S `WA234` + RC Pro 2 `rc520` находится в
+[`AIR3S_RC_PRO2_LIVE_MAP.md`](AIR3S_RC_PRO2_LIVE_MAP.md). Он доказал, что
+transport topology и radio-state candidates различаются между моделями.
+
 ## Главный результат
 
 Home Point можно определить без догадки по таймеру или числу спутников:
@@ -85,6 +89,11 @@ ground-side HD transmission MCU. В закреплённом `dji-firmware-tools
 `0000 → 0200` является OBSERVED, а название bit 1 как FCC readback пока
 HYPOTHESIS: write completion не доказывает фактическую RF power, и текущий
 post-apply A/B не был независимо проверен графиком Transmission.
+
+Позднейший Air 3S/RC Pro 2 A/B опроверг универсальность этой гипотезы:
+`09:43=0000` получен в CE и в двух физически подтверждённых FCC sessions.
+Следовательно, `09:43 bit1` нельзя использовать как общий DJI FCC readback;
+Avata-корреляция остаётся model/session-specific наблюдением.
 
 Corpus-wide audit усиливает, но не завершает вывод:
 
@@ -180,8 +189,8 @@ Indoor US-spoof подтвердил итоговый FCC после US Home Poi
 
 Что ещё не доказано: настоящий radio-mode readback. Legacy name `06:21 RC Power
 Mode CE/FCC Get` найден, но direct `40009` route не ответил и payload layout
-неизвестен. `09:43 bit1` теперь является сильным пассивным кандидатом, но до
-обратимого повтора физический FCC/CE по-прежнему проверяется в DJI Fly.
+неизвестен. `09:43 bit1` сохраняется только как Avata-specific correlation и
+не переносится на Air 3S; физический FCC/CE по-прежнему проверяется в DJI Fly.
 
 Дополнительный corpus audit подтвердил, что `06:72 payload=00` — только
 ACK/status успеха, а не значение CE/FCC. Наблюдаемые `09:08`, `09:20`, `09:36`
