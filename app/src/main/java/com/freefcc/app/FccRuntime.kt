@@ -145,7 +145,15 @@ internal class FccRuntimeTracker {
             )
             val successful = outcome == FccApplyOutcome.ALL_WRITES_FLUSHED &&
                 flushedWrites == running.expectedWrites
+            val manualRecovery = successful &&
+                running.origin == FccApplyOrigin.MANUAL &&
+                current.keepaliveStatus == KeepaliveRuntimeStatus.FAILED
             current.copy(
+                keepaliveStatus = if (manualRecovery) {
+                    KeepaliveRuntimeStatus.STOPPED
+                } else {
+                    current.keepaliveStatus
+                },
                 lastSuccessfulWriteAtMs = if (successful) finishedAtMs else current.lastSuccessfulWriteAtMs,
                 lastAttemptSucceeded = successful,
                 lastApplyAttempt = finished,
@@ -153,7 +161,8 @@ internal class FccRuntimeTracker {
                     finished
                 } else {
                     current.lastAutomaticApplyAttempt
-                }
+                },
+                error = if (manualRecovery) null else current.error
             )
         }
     }

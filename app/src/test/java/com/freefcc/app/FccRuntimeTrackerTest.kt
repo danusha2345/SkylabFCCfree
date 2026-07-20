@@ -159,6 +159,39 @@ class FccRuntimeTrackerTest {
     }
 
     @Test
+    fun successfulManualRecoveryClearsStaleMonitorFailure() {
+        val tracker = FccRuntimeTracker()
+        tracker.beginHardwareSession(40009)
+        tracker.serviceFailed("Home Point stream disconnected")
+
+        finishAttempt(tracker, success = true, finishedAtMs = 2_000L)
+
+        assertEquals(KeepaliveRuntimeStatus.STOPPED, tracker.state.value.keepaliveStatus)
+        assertNull(tracker.state.value.error)
+        assertEquals(
+            "fcc_written",
+            resolveFccRuntimeStatus(
+                currentStatus = "fcc_written",
+                isConnected = true,
+                keepaliveStatus = tracker.state.value.keepaliveStatus,
+                hasWriteEvidence = true
+            )
+        )
+    }
+
+    @Test
+    fun failedManualAttemptPreservesMonitorFailure() {
+        val tracker = FccRuntimeTracker()
+        tracker.beginHardwareSession(40009)
+        tracker.serviceFailed("Home Point stream disconnected")
+
+        finishAttempt(tracker, success = false, finishedAtMs = 2_000L)
+
+        assertEquals(KeepaliveRuntimeStatus.FAILED, tracker.state.value.keepaliveStatus)
+        assertEquals("Home Point stream disconnected", tracker.state.value.error)
+    }
+
+    @Test
     fun keepaliveStatusTracksActualLifecycle() {
         val tracker = FccRuntimeTracker()
 

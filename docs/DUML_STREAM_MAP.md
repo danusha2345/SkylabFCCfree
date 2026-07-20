@@ -1,6 +1,6 @@
 # Карта live DUML-потоков FreeFCC
 
-Дата: 2026-07-19.
+Дата: 2026-07-20.
 
 Scope: DJI RC2 `rc331` + Avata 360/O4, FreeFCC `1.5.14`, linked aircraft,
 DJI Fly и indoor GPS spoof. Это evidence-карта текущей связки, а не обещание
@@ -62,7 +62,51 @@ primer исключён.
 
 Direct read-only `03:44` и `06:21` на `40009` matching response не дали: socket
 вернул только посторонний `06:AE`. Для Home Point правильный live path оказался
-passive wrapped `40007`; radio mode readback остаётся нерешённым.
+passive wrapped `40007`; для radio mode найден коррелирующий push-кандидат
+`09:43`, но окончательная семантика его bit 1 ещё требует обратимого повтора.
+
+## Маркированный CE → FCC A/B, 2026-07-20
+
+В одной aircraft session сначала был снят пользовательски маркированный CE,
+затем FreeFCC отправил полный профиль на pinned `40009`: `42/42` writes,
+`ALL_WRITES_FLUSHED`. Следующее одиночное окно `40007` дало изменение одного
+radio-side push:
+
+| Frame / поле | CE | После полного FCC apply | Уровень вывода |
+|---|---:|---:|---|
+| `09:43`, route `0x0e → App`, LE u16 at offset 0 | `0x0000` | `0x0002` | OBSERVED; bit 1 — сильный FCC-state кандидат |
+| `19:67`, payload byte offset 2 | `0x01` в доступных paired samples | `0x00` | OBSERVED; secondary cross-check, семантика UNKNOWN |
+| `18:40` | `0100` | `0100` | NEGATIVE: не mode bit |
+| фон `40009` (`06:AE`, `06:A4`, `06:8E`, `00:81/82`) | byte-identical | byte-identical | NEGATIVE: пассивного FCC-бита не видно |
+
+`09:43` — CRC-valid unencrypted push command set `09` (`HD Link`) от
+ground-side HD transmission MCU. В закреплённом `dji-firmware-tools` для
+современного `cmdId=0x43` имени и layout нет. Поэтому точная корреляция
+`0000 → 0200` является OBSERVED, а название bit 1 как FCC readback пока
+HYPOTHESIS: write completion не доказывает фактическую RF power, и текущий
+post-apply A/B не был независимо проверен графиком Transmission.
+
+Corpus-wide audit усиливает, но не завершает вывод:
+
+- `09:43=0000`: 54 CRC-valid frames в 21 файле;
+- `09:43=0200`: 3 frames — два в старом restart-transition corpus и один сразу
+  после нового полного apply;
+- старый последовательный поток менялся `0200 → 0000` без reset sequence;
+- все 17 доступных `19:67` следовали сразу после `09:43`: для двух paired
+  `0200` byte offset 2 был `00`, для 15 paired `0000` — `01`;
+- Home Point не объясняет этот бит: `09:43=0000` наблюдался до и после
+  `03:44 home_state 0→1`, а новый `0200` пришёл при уже записанном Home Point.
+
+После следующего запуска в физическом CE были выполнены ровно два одиночных
+read-only capture. Брокер сам закрыл каждый socket примерно через 2 s; окна
+содержали только `18:40=0100` и `06:AE`, без `09:43`. Это NEGATIVE только для
+двух коротких окон, не доказательство значения режима. Новые reconnect делать
+не стали, потому что их серия ранее физически нарушала aircraft link.
+
+Для перевода кандидата в практический readback нужен ещё один маркированный
+обратимый цикл `CE=0000 → FCC=0200` либо `FCC=0200 → CE=0000`, с парой
+`09:43 + 19:67` и независимой проверкой Transmission graph. Production polling
+через повторные подключения для этого запрещён.
 
 ## `40007`: широкая telemetry-карта
 
@@ -136,7 +180,8 @@ Indoor US-spoof подтвердил итоговый FCC после US Home Poi
 
 Что ещё не доказано: настоящий radio-mode readback. Legacy name `06:21 RC Power
 Mode CE/FCC Get` найден, но direct `40009` route не ответил и payload layout
-неизвестен. Пока физический FCC/CE проверяется в DJI Fly.
+неизвестен. `09:43 bit1` теперь является сильным пассивным кандидатом, но до
+обратимого повтора физический FCC/CE по-прежнему проверяется в DJI Fly.
 
 Дополнительный corpus audit подтвердил, что `06:72 payload=00` — только
 ACK/status успеха, а не значение CE/FCC. Наблюдаемые `09:08`, `09:20`, `09:36`
@@ -207,6 +252,11 @@ Raw JSON, summaries и analyzer находятся только в ignored `.scr
 | Первый `40009` sample JSON | `d05996e9d11bd202fe0d0297c1d275728928cbeae21eb1b2dad384c429814ee6` |
 | Home Point before-transition sample 25 | `a105f2387ae852c62bdc030ccacd15c10a3e3bf4b7783f08d629254c8334a5dc` |
 | Home Point transition sample 26 | `6954c466d6c35b4ee008026ec6e6ccd72e2479851c13f269ecf42b475e8f0fa7` |
+| Same-session CE `40007` A/B | `572607d12a33d2794a7326603b87e00b72e9a6bfe1661f1d8271165d55dc6deb` |
+| Full FCC apply status `42/42` | `227936f390dc9ec34d5a3ab011cd99b64af20cf557ce5721ffee4ca4335a5d21` |
+| Same-session post-apply `40007` A/B | `cf5601b35ee74ea676042dadd2973f3247151ac4eb8ed5ef53f6c8b42b5a65cb` |
+| Reversal CE short window 1 | `b4a538247e3ab21d265d28bb78a1661a3079ff56b87cbca4a93f82ba6454817e` |
+| Reversal CE short window 2 | `6d6c3a104a010b5ad7dd5cea508bd7d545d2d9e0154fc6df3dae3d6914a40a4d` |
 
 Raw corpus содержит coordinates и полный aircraft serial, поэтому не должен
 попадать в git/release artifacts. В tracked docs identity намеренно редактирован.
