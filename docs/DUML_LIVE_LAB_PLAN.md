@@ -45,6 +45,26 @@ Home Point transition. Ручной `Re-Send FCC Request` после Home Point 
 `MainActivity.onStop()` перед service start. Поздний start после OFF блокируется
 атомарно; terminal failure показывает `connection/armed/recovery`.
 
+Fresh reboot live-test `1.5.19` подтвердил правильный UI handoff, но monitor
+снова завершился unarmed до FCC. Одиночный exact `03:44` experiment получил
+1126 B широкого потока и clean EOF через 2127 ms без единого `03:44`; во всех
+32 сохранённых active `03:44` exchanges matching response отсутствует. Поэтому
+`1.5.20` сохраняет ровно один socket и повторяет тот же primer в нём раз в
+секунду. Новые connections не открываются; EOF остаётся terminal. Это
+experimental transport hypothesis, которую надо проверить на RC2 до признания
+Auto-FCC рабочим.
+
+## Release candidate `1.5.20`
+
+| Проверка | Результат |
+|---|---|
+| Live failure `1.5.19` | Fresh controller+aircraft reboot: корректный DJI Fly handoff, затем terminal `connection=1, armed=false, recovery=false`; FCC автоматически не записан |
+| Exact `03:44` experiment | Один socket `40007`, 21 B tx, 1126 B rx, `EOF` через 2127 ms; 6 CRC-valid background frames, matching/passive `03:44` отсутствует |
+| Corpus audit | 32 active `03:44` exchanges: 0 matching responses; 42/42 обнаруженных `03:44` — passive `cmdType=0x00`, route `0x0e → 0x02` |
+| Transport change | Primer повторяется раз в 1000 ms в том же socket; при EOF reconnect запрещён |
+| Focused tests | HomePointMonitor tests проходят, включая same-socket refresh при telemetry и read timeout |
+| RC2 runtime | PENDING: socket живёт >10 s без link drop; затем fresh `false → true`, один full FCC apply |
+
 Полный inventory transports, command frequencies, payload evidence и privacy
 границы: [DUML_STREAM_MAP.md](DUML_STREAM_MAP.md).
 

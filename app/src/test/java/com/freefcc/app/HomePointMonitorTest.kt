@@ -93,6 +93,127 @@ class HomePointMonitorTest {
     }
 
     @Test
+    fun refreshesSameProbeOnSameConnectionWhileTelemetryIsFlowing() {
+        val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val serverError = AtomicReference<Throwable>()
+        val firstProbe = AtomicReference<ByteArray>()
+        val refreshedProbe = AtomicReference<ByteArray>()
+        val thread = Thread {
+            try {
+                server.use { listener ->
+                    listener.accept().use { socket ->
+                        socket.soTimeout = 2_000
+                        val input = socket.getInputStream()
+                        val probeLength = 21
+                        firstProbe.set(readExactly(input, probeLength))
+                        repeat(8) {
+                            socket.getOutputStream().apply {
+                                write(Profiles.wrapFrame(homePointFrame(0x0046)))
+                                flush()
+                            }
+                            Thread.sleep(10)
+                        }
+                        refreshedProbe.set(readExactly(input, probeLength))
+                        socket.getOutputStream().apply {
+                            write(Profiles.wrapFrame(homePointFrame(0x0047)))
+                            flush()
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                serverError.set(t)
+            }
+        }
+        thread.start()
+
+        val result = HomePointMonitor(port = server.localPort, probeRefreshMs = 50)
+            .waitUntilRecorded { true }
+
+        thread.join(2_000)
+        assertFalse(thread.isAlive)
+        serverError.get()?.let { throw AssertionError("server failed", it) }
+        assertEquals(HomePointWaitResult.RECORDED, result)
+        assertTrue(firstProbe.get().contentEquals(refreshedProbe.get()))
+    }
+
+    @Test
+    fun refreshesProbeAfterReadTimeoutWithoutReconnecting() {
+        val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val serverError = AtomicReference<Throwable>()
+        val firstProbe = AtomicReference<ByteArray>()
+        val refreshedProbe = AtomicReference<ByteArray>()
+        val thread = Thread {
+            try {
+                server.use { listener ->
+                    listener.accept().use { socket ->
+                        socket.soTimeout = 2_000
+                        val input = socket.getInputStream()
+                        val probeLength = 21
+                        firstProbe.set(readExactly(input, probeLength))
+                        refreshedProbe.set(readExactly(input, probeLength))
+                        socket.getOutputStream().apply {
+                            write(Profiles.wrapFrame(homePointFrame(0x0046)))
+                            write(Profiles.wrapFrame(homePointFrame(0x0047)))
+                            flush()
+                        }
+                    }
+                }
+            } catch (t: Throwable) {
+                serverError.set(t)
+            }
+        }
+        thread.start()
+
+        val result = HomePointMonitor(port = server.localPort, probeRefreshMs = 50)
+            .waitUntilRecorded { true }
+
+        thread.join(2_000)
+        assertFalse(thread.isAlive)
+        serverError.get()?.let { throw AssertionError("server failed", it) }
+        assertEquals(HomePointWaitResult.RECORDED, result)
+        assertTrue(firstProbe.get().contentEquals(refreshedProbe.get()))
+    }
+
+    @Test
+    fun stoppedBeforeMonitorStartDoesNotConnectOrWrite() {
+        val result = HomePointMonitor(port = 0).waitUntilRecorded { false }
+
+        assertEquals(HomePointWaitResult.STOPPED, result)
+    }
+
+    @Test
+    fun stopObservedBeforeRefreshDoesNotWriteAnotherProbe() {
+        val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val keepRunning = AtomicBoolean(true)
+        val bytesAfterStop = AtomicReference<Int>()
+        val serverError = AtomicReference<Throwable>()
+        val thread = Thread {
+            try {
+                server.use { listener ->
+                    listener.accept().use { socket ->
+                        socket.soTimeout = 2_000
+                        readExactly(socket.getInputStream(), 21)
+                        keepRunning.set(false)
+                        bytesAfterStop.set(socket.getInputStream().read(ByteArray(21)))
+                    }
+                }
+            } catch (t: Throwable) {
+                serverError.set(t)
+            }
+        }
+        thread.start()
+
+        val result = HomePointMonitor(port = server.localPort, probeRefreshMs = 50)
+            .waitUntilRecorded { keepRunning.get() }
+
+        thread.join(2_000)
+        assertFalse(thread.isAlive)
+        serverError.get()?.let { throw AssertionError("server failed", it) }
+        assertEquals(HomePointWaitResult.STOPPED, result)
+        assertEquals(-1, bytesAfterStop.get())
+    }
+
+    @Test
     fun initialRecordedSnapshotThenEofDoesNotCompleteWait() {
         val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         val serverError = AtomicReference<Throwable>()
@@ -267,5 +388,16 @@ class HomePointMonitorTest {
                 payload = payload
             )
         )
+    }
+
+    private fun readExactly(input: java.io.InputStream, length: Int): ByteArray {
+        val result = ByteArray(length)
+        var offset = 0
+        while (offset < length) {
+            val count = input.read(result, offset, length - offset)
+            if (count < 0) throw AssertionError("unexpected EOF after $offset/$length bytes")
+            offset += count
+        }
+        return result
     }
 }

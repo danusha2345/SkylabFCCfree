@@ -1,5 +1,19 @@
 # История изменений
 
+## 1.5.20 — 2026-07-20
+
+- Home Point monitor больше не ждёт неподтверждённый matching response на
+  active `03:44`: он принимает только пассивные CRC-valid push-фреймы
+  `0x0e → 0x02`, `cmdType=0x00`.
+- Один wrapped `03:44` теперь повторяется раз в секунду в том же TCP-сокете
+  `40007`, чтобы проверить и поддержать broker telemetry window без опасного
+  цикла новых connections. DUML sequence и весь wire-frame переиспользуются.
+- EOF и write failure остаются terminal fail-closed: скрытого reconnect loop
+  нет. После `Home Point=true`, Auto-FCC OFF или service yield сокет закрывается
+  до FCC write.
+- JVM-тесты проверяют refresh на том же соединении как при непрерывной
+  телеметрии, так и после read timeout.
+
 ## 1.5.19 — 2026-07-20
 
 - Auto-FCC больше не открывает Home Point listener до UI/serial probe и запуска

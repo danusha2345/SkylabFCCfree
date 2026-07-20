@@ -39,8 +39,12 @@ CRC-16. Поэтому это не false-positive scan внутри arbitrary wr
 физически рвал aircraft/controller link. Повторная проверка с максимум одним
 завершённым запросом в секунду также рвала связь. После остановки нормальный link
 восстанавливался. Continuous `40007 wire_exchange` polling запрещён.
-Production-решение должно использовать уже принятую DJI Fly telemetry либо
-отдельно проверить один long-lived listener; нельзя переносить этот polling в APK.
+В 37 сохранённых active capture-сеансах socket жил `0.967–2.205 s`; ни один из
+32 active `03:44` не получил matching response, а все 42 найденных `03:44` были
+пассивными push. Production-решение должно использовать один socket и
+непрерывно читать уже публикуемую telemetry. В `1.5.20` экспериментально
+проверяется refresh того же primer раз в секунду в том же socket; это не polling
+новыми connections и пока требует live-подтверждения на RC2.
 
 ## `40009`: узкий broker stream
 

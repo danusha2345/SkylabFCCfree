@@ -144,12 +144,14 @@ internal class WrappedDumlFrameParser {
 /** One connection that remains open only until Home Point is observed. */
 internal class HomePointMonitor(
     private val host: String = "127.0.0.1",
-    private val port: Int = DumlTransport.PORT_LED
+    private val port: Int = DumlTransport.PORT_LED,
+    private val probeRefreshMs: Long = 1_000
 ) {
     fun waitUntilRecorded(
         sessionGate: HomePointSessionGate = HomePointSessionGate(),
         shouldContinue: () -> Boolean
     ): HomePointWaitResult {
+        if (!shouldContinue()) return HomePointWaitResult.STOPPED
         var socket: Socket? = null
         var connected = false
         return try {
@@ -159,15 +161,29 @@ internal class HomePointMonitor(
             socket.tcpNoDelay = true
             socket.soTimeout = 250
 
-            val probe = HomePointProtocol.buildProbe()
-            socket.getOutputStream().apply {
-                write(Profiles.wrapFrame(probe))
+            // Live captures show 03:44 only as a passive push. Repeating the
+            // same primer on this socket refreshes the broker window without
+            // the aircraft-link disruption caused by opening new connections.
+            val wireProbe = Profiles.wrapFrame(HomePointProtocol.buildProbe())
+            val output = socket.getOutputStream()
+            if (!shouldContinue()) return HomePointWaitResult.STOPPED
+            output.apply {
+                write(wireProbe)
                 flush()
             }
+            val refreshIntervalNanos = probeRefreshMs.coerceAtLeast(1) * 1_000_000L
+            var nextRefreshNanos = System.nanoTime() + refreshIntervalNanos
 
             val parser = WrappedDumlFrameParser()
             val buffer = ByteArray(4_096)
             while (shouldContinue()) {
+                val now = System.nanoTime()
+                if (now >= nextRefreshNanos) {
+                    if (!shouldContinue()) return HomePointWaitResult.STOPPED
+                    output.write(wireProbe)
+                    output.flush()
+                    nextRefreshNanos = now + refreshIntervalNanos
+                }
                 val count = try {
                     socket.getInputStream().read(buffer)
                 } catch (_: SocketTimeoutException) {
