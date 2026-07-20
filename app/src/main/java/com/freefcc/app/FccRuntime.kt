@@ -20,6 +20,23 @@ internal data class FccRuntimeSnapshot(
     val error: String? = null
 )
 
+internal fun resolveFccRuntimeStatus(
+    currentStatus: String,
+    isConnected: Boolean,
+    keepaliveStatus: KeepaliveRuntimeStatus,
+    hasWriteEvidence: Boolean
+): String = when {
+    currentStatus == "applying" || currentStatus == "restoring" -> currentStatus
+    keepaliveStatus == KeepaliveRuntimeStatus.FAILED -> {
+        if (isConnected) "monitor_failed" else "disconnected"
+    }
+    (keepaliveStatus == KeepaliveRuntimeStatus.STARTING ||
+        keepaliveStatus == KeepaliveRuntimeStatus.RUNNING) && isConnected -> "waiting_home_point"
+    hasWriteEvidence && isConnected -> "fcc_written"
+    !hasWriteEvidence && currentStatus == "fcc_written" && isConnected -> "connected"
+    else -> currentStatus
+}
+
 internal class FccRuntimeTracker {
     private val mutableState = MutableStateFlow(FccRuntimeSnapshot())
     val state: StateFlow<FccRuntimeSnapshot> = mutableState.asStateFlow()

@@ -2,6 +2,7 @@ package com.freefcc.app
 
 import java.net.InetAddress
 import java.net.ServerSocket
+import java.net.SocketTimeoutException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
@@ -64,7 +65,6 @@ class HomePointMonitorTest {
             try {
                 server.use { listener ->
                     listener.accept().use { socket ->
-                        socket.getInputStream().read(ByteArray(128))
                         val before = Profiles.wrapFrame(homePointFrame(0x0046))
                         val after = Profiles.wrapFrame(homePointFrame(0x0047))
                         socket.getOutputStream().apply {
@@ -90,27 +90,20 @@ class HomePointMonitorTest {
     }
 
     @Test
-    fun refreshesNextProbeOnSameConnectionWhileTelemetryIsFlowing() {
+    fun passiveMonitorNeverWritesToTelemetrySocket() {
         val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         val serverError = AtomicReference<Throwable>()
-        val firstProbe = AtomicReference<ByteArray>()
-        val refreshedProbe = AtomicReference<ByteArray>()
+        val clientWriteObserved = AtomicBoolean(false)
         val thread = Thread {
             try {
                 server.use { listener ->
                     listener.accept().use { socket ->
-                        socket.soTimeout = 2_000
-                        val input = socket.getInputStream()
-                        val probeLength = 21
-                        firstProbe.set(readExactly(input, probeLength))
-                        repeat(8) {
-                            socket.getOutputStream().apply {
-                                write(Profiles.wrapFrame(homePointFrame(0x0046)))
-                                flush()
-                            }
-                            Thread.sleep(10)
+                        socket.soTimeout = 1_200
+                        try {
+                            clientWriteObserved.set(socket.getInputStream().read() >= 0)
+                        } catch (_: SocketTimeoutException) {
+                            // Expected: the production listener is read-only.
                         }
-                        refreshedProbe.set(readExactly(input, probeLength))
                         socket.getOutputStream().apply {
                             write(Profiles.wrapFrame(homePointFrame(0x0047)))
                             flush()
@@ -123,33 +116,25 @@ class HomePointMonitorTest {
         }
         thread.start()
 
-        val result = HomePointMonitor(port = server.localPort, probeRefreshMs = 50)
-            .waitUntilRecorded { true }
+        val result = HomePointMonitor(port = server.localPort).waitUntilRecorded { true }
 
         thread.join(2_000)
         assertFalse(thread.isAlive)
         serverError.get()?.let { throw AssertionError("server failed", it) }
         assertEquals(HomePointWaitResult.RECORDED, result)
-        assertSequentialProbes(firstProbe.get(), refreshedProbe.get())
+        assertFalse(clientWriteObserved.get())
     }
 
     @Test
-    fun refreshesProbeAfterReadTimeoutWithoutReconnecting() {
+    fun passiveMonitorSurvivesReadTimeoutOnSameConnection() {
         val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         val serverError = AtomicReference<Throwable>()
-        val firstProbe = AtomicReference<ByteArray>()
-        val refreshedProbe = AtomicReference<ByteArray>()
         val thread = Thread {
             try {
                 server.use { listener ->
                     listener.accept().use { socket ->
-                        socket.soTimeout = 2_000
-                        val input = socket.getInputStream()
-                        val probeLength = 21
-                        firstProbe.set(readExactly(input, probeLength))
-                        refreshedProbe.set(readExactly(input, probeLength))
+                        Thread.sleep(400)
                         socket.getOutputStream().apply {
-                            write(Profiles.wrapFrame(homePointFrame(0x0046)))
                             write(Profiles.wrapFrame(homePointFrame(0x0047)))
                             flush()
                         }
@@ -161,14 +146,12 @@ class HomePointMonitorTest {
         }
         thread.start()
 
-        val result = HomePointMonitor(port = server.localPort, probeRefreshMs = 50)
-            .waitUntilRecorded { true }
+        val result = HomePointMonitor(port = server.localPort).waitUntilRecorded { true }
 
         thread.join(2_000)
         assertFalse(thread.isAlive)
         serverError.get()?.let { throw AssertionError("server failed", it) }
         assertEquals(HomePointWaitResult.RECORDED, result)
-        assertSequentialProbes(firstProbe.get(), refreshedProbe.get())
     }
 
     @Test
@@ -179,7 +162,7 @@ class HomePointMonitorTest {
     }
 
     @Test
-    fun stopObservedBeforeRefreshDoesNotWriteAnotherProbe() {
+    fun stopClosesPassiveSocketWithoutWriting() {
         val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         val keepRunning = AtomicBoolean(true)
         val bytesAfterStop = AtomicReference<Int>()
@@ -189,8 +172,7 @@ class HomePointMonitorTest {
                 server.use { listener ->
                     listener.accept().use { socket ->
                         socket.soTimeout = 2_000
-                        readExactly(socket.getInputStream(), 21)
-                        keepRunning.set(false)
+                        Thread.sleep(100)
                         bytesAfterStop.set(socket.getInputStream().read(ByteArray(21)))
                     }
                 }
@@ -199,9 +181,12 @@ class HomePointMonitorTest {
             }
         }
         thread.start()
+        Thread {
+            Thread.sleep(50)
+            keepRunning.set(false)
+        }.start()
 
-        val result = HomePointMonitor(port = server.localPort, probeRefreshMs = 50)
-            .waitUntilRecorded { keepRunning.get() }
+        val result = HomePointMonitor(port = server.localPort).waitUntilRecorded { keepRunning.get() }
 
         thread.join(2_000)
         assertFalse(thread.isAlive)
@@ -218,7 +203,6 @@ class HomePointMonitorTest {
             try {
                 server.use { listener ->
                     listener.accept().use { socket ->
-                        socket.getInputStream().read(ByteArray(128))
                         socket.getOutputStream().apply {
                             write(Profiles.wrapFrame(homePointFrame(0x0047)))
                             flush()
@@ -245,7 +229,6 @@ class HomePointMonitorTest {
         val firstThread = Thread {
             firstServer.use { listener ->
                 listener.accept().use { socket ->
-                    socket.getInputStream().read(ByteArray(128))
                     socket.getOutputStream().apply {
                         write(Profiles.wrapFrame(homePointFrame(0x0046)))
                         flush()
@@ -265,7 +248,6 @@ class HomePointMonitorTest {
         val secondThread = Thread {
             secondServer.use { listener ->
                 listener.accept().use { socket ->
-                    socket.getInputStream().read(ByteArray(128))
                     socket.getOutputStream().apply {
                         write(Profiles.wrapFrame(homePointFrame(0x0047)))
                         flush()
@@ -288,7 +270,6 @@ class HomePointMonitorTest {
         val thread = Thread {
             server.use { listener ->
                 listener.accept().use { socket ->
-                    socket.getInputStream().read(ByteArray(128))
                 }
             }
         }
@@ -308,7 +289,6 @@ class HomePointMonitorTest {
         val firstThread = Thread {
             firstServer.use { listener ->
                 listener.accept().use { socket ->
-                    socket.getInputStream().read(ByteArray(128))
                     socket.getOutputStream().apply {
                         write(Profiles.wrapFrame(homePointFrame(0x0047)))
                         flush()
@@ -329,7 +309,6 @@ class HomePointMonitorTest {
         val secondThread = Thread {
             secondServer.use { listener ->
                 listener.accept().use { socket ->
-                    socket.getInputStream().read(ByteArray(128))
                     socket.getOutputStream().apply {
                         write(Profiles.wrapFrame(homePointFrame(0x0047)))
                         flush()
@@ -352,7 +331,6 @@ class HomePointMonitorTest {
         val thread = Thread {
             server.use { listener ->
                 listener.accept().use { socket ->
-                    socket.getInputStream().read(ByteArray(128))
                     Thread.sleep(400)
                 }
             }
@@ -386,36 +364,4 @@ class HomePointMonitorTest {
         )
     }
 
-    private fun readExactly(input: java.io.InputStream, length: Int): ByteArray {
-        val result = ByteArray(length)
-        var offset = 0
-        while (offset < length) {
-            val count = input.read(result, offset, length - offset)
-            if (count < 0) throw AssertionError("unexpected EOF after $offset/$length bytes")
-            offset += count
-        }
-        return result
-    }
-
-    private fun assertSequentialProbes(first: ByteArray, second: ByteArray) {
-        assertFalse(first.contentEquals(second))
-        assertTrue(first.copyOfRange(0, 14).contentEquals(second.copyOfRange(0, 14)))
-        assertTrue(first.copyOfRange(16, 19).contentEquals(second.copyOfRange(16, 19)))
-
-        val firstSequence = (first[14].toInt() and 0xFF) or
-            ((first[15].toInt() and 0xFF) shl 8)
-        val secondSequence = (second[14].toInt() and 0xFF) or
-            ((second[15].toInt() and 0xFF) shl 8)
-        assertEquals((firstSequence + 1) and 0xFFFF, secondSequence)
-
-        for (wire in listOf(first, second)) {
-            val inner = wire.copyOfRange(8, wire.size)
-            assertEquals(DumlBuilder.crc8(inner, 0, 3), inner[3].toInt() and 0xFF)
-            assertEquals(
-                DumlBuilder.crc16(inner, 0, inner.size - 2),
-                (inner[inner.lastIndex - 1].toInt() and 0xFF) or
-                    ((inner[inner.lastIndex].toInt() and 0xFF) shl 8)
-            )
-        }
-    }
 }

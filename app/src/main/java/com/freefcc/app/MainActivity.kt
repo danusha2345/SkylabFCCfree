@@ -250,6 +250,12 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                         BodyText("Send the FCC request, then verify RF mode in DJI Fly.")
                         Spacer(Modifier.height(12.dp))
                     }
+                    if (state.status == "monitor_failed") {
+                        GlowButton("Retry Home Point", Cyan, enabled = !state.isHardwareBusy) {
+                            viewModel.startKeepalive()
+                        }
+                        Spacer(Modifier.height(8.dp))
+                    }
                     GlowButton(fccPresentation.primaryActionLabel, Cyan, enabled = !state.isHardwareBusy) { viewModel.enableFcc() }
                 }
             }

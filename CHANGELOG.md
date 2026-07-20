@@ -1,5 +1,20 @@
 # История изменений
 
+## 1.5.23 — 2026-07-20
+
+- Home Point listener теперь полностью пассивный: один socket `40007`, ни
+  одного primer/query/refresh write. Live A/B на RC2 показал, что именно
+  read-only socket сразу получает полный telemetry stream.
+- Пассивный live capture набрал 128 CRC-valid кадров примерно за 1 секунду,
+  включая два `03:44` от `0x0E` с payload 102 B и `home_state=0x0047`
+  (`Home Point=true`).
+- Подтверждена причина регрессии `1.5.22`: записанный primer ограничивал broker
+  window примерно двумя секундами и мог не получить ни одного `03:44`.
+- Ошибка Home Point monitor больше не превращает успешный controller Connect в
+  ложный `Disconnected`. Для отдельного повтора отображается
+  `Retry Home Point`; manual/LAN monitor start не может создать Connected без
+  успешного transport probe.
+
 ## 1.5.22 — 2026-07-20
 
 - Пользовательский flow упрощён: открыть FreeFCC → нажать `Connect`. После

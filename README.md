@@ -81,8 +81,9 @@ The captured 4G profile is experimental and was derived from systems using exter
 Validated upstream on DJI RC2 firmware v10.00.0700; this fork was additionally exercised live on RC2 `rc331`. Future firmware can change the local proxy or DUML routing, so compatibility must be rechecked rather than assumed.
 
 The former two-second FCC keepalive is no longer used. After a successful
-**Connect**, FreeFCC holds one port-`40007` listener until a CRC-valid `03:44`
-push reports the current Home Point as recorded, then closes the listener and
+**Connect**, FreeFCC opens one read-only port-`40007` listener and sends no
+primer, query, or refresh frames. A CRC-valid passive `03:44` push reports the
+current Home Point state; when it is recorded, FreeFCC closes the listener and
 performs one complete FCC apply. A prior `not recorded` state is not required.
 If an established stream disconnects after reporting `not recorded`, one
 bounded recovery is permitted; otherwise disconnects stop fail-closed, so there

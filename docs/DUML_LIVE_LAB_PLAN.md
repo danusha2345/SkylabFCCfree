@@ -83,6 +83,13 @@ toggle, boot autostart и автоматический launch DJI Fly исклю
 относительно отрицательного A/B: каждый 1 Hz refresh в том же socket получает
 следующий DUML sequence и новый CRC.
 
+Live разбор `1.5.22` локализовал ошибку transport design. Два written-primer
+варианта (`dst=0x03` и `dst=0x0E`) завершались EOF примерно через 2 секунды;
+legacy route не получал `03:44`, а `dst=0x0E` вернул только пустой matching
+frame. Один полностью пассивный socket без единого DUML write за ~1 секунду
+получил 128 валидных telemetry frames, включая два `03:44` payload 102 B с
+`home_state=0x0047`. Поэтому `1.5.23` удаляет primer и refresh полностью.
+
 Полный inventory transports, command frequencies, payload evidence и privacy
 границы: [DUML_STREAM_MAP.md](DUML_STREAM_MAP.md).
 

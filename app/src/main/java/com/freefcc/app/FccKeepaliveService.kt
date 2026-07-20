@@ -315,9 +315,9 @@ class FccKeepaliveService : Service() {
                         // Reopening an established 40007 stream repeatedly was
                         // proven to disrupt the aircraft/controller link.
                         monitorFailure = if (waitResult == HomePointWaitResult.STREAM_DISCONNECTED) {
-                            "Home Point stream disconnected; tap Connect to retry"
+                            "Home Point stream disconnected; tap Retry Home Point"
                         } else {
-                            "Home Point stream unavailable; tap Connect to retry"
+                            "Home Point stream unavailable; tap Retry Home Point"
                         }
                         monitorFailure += " [connection=$monitorConnectionOrdinal, armed=$sessionArmed, recovery=$armedStreamReconnectUsed]"
                         break

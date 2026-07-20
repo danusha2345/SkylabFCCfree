@@ -33,18 +33,6 @@ internal class HomePointSessionGate {
 }
 
 internal object HomePointProtocol {
-    fun buildProbe(builder: DumlBuilder = DumlBuilder()): ByteArray =
-        builder.buildFrame(
-            DumlFrame(
-                sender = 0x02,
-                cmdType = 0x40,
-                cmdSet = 0x03,
-                cmdId = 0x44,
-                dst = 0x03,
-                payload = ByteArray(0)
-            )
-        )
-
     fun isRecorded(frame: ByteArray): Boolean? {
         if (frame.size < 35 || frame[0] != 0x55.toByte()) return null
         val length = (frame[1].toInt() and 0xFF) or
@@ -60,9 +48,8 @@ internal object HomePointProtocol {
         val destinationType = frame[5].toInt() and 0x1F
         if (senderType !in setOf(0x03, 0x0E) || destinationType != 0x02) return null
         // The live-confirmed Avata/O4 Home Point layout is an unencrypted
-        // telemetry push (cmdType=0x00). A response to our probe uses the same
-        // route and command ID but may prepend status bytes, so never parse it
-        // with the fixed push offsets below.
+        // passive telemetry push (cmdType=0x00). The production listener sends
+        // no request frames and parses only this fixed push layout.
         if (frame[8] != 0x00.toByte()) return null
         if (frame[9] != 0x03.toByte() || frame[10] != 0x44.toByte()) return null
 
@@ -143,8 +130,7 @@ internal class WrappedDumlFrameParser {
 /** One connection that remains open only until Home Point is observed. */
 internal class HomePointMonitor(
     private val host: String = "127.0.0.1",
-    private val port: Int = DumlTransport.PORT_LED,
-    private val probeRefreshMs: Long = 1_000
+    private val port: Int = DumlTransport.PORT_LED
 ) {
     fun waitUntilRecorded(
         sessionGate: HomePointSessionGate = HomePointSessionGate(),
@@ -160,31 +146,9 @@ internal class HomePointMonitor(
             socket.tcpNoDelay = true
             socket.soTimeout = 250
 
-            // Live captures show 03:44 only as a passive push. Try a fresh
-            // primer sequence on this socket without the aircraft-link disruption
-            // caused by opening new connections; live proof is still required.
-            val probeBuilder = DumlBuilder()
-            var wireProbe = Profiles.wrapFrame(HomePointProtocol.buildProbe(probeBuilder))
-            val output = socket.getOutputStream()
-            if (!shouldContinue()) return HomePointWaitResult.STOPPED
-            output.apply {
-                write(wireProbe)
-                flush()
-            }
-            val refreshIntervalNanos = probeRefreshMs.coerceAtLeast(1) * 1_000_000L
-            var nextRefreshNanos = System.nanoTime() + refreshIntervalNanos
-
             val parser = WrappedDumlFrameParser()
             val buffer = ByteArray(4_096)
             while (shouldContinue()) {
-                val now = System.nanoTime()
-                if (now >= nextRefreshNanos) {
-                    if (!shouldContinue()) return HomePointWaitResult.STOPPED
-                    wireProbe = Profiles.wrapFrame(HomePointProtocol.buildProbe(probeBuilder))
-                    output.write(wireProbe)
-                    output.flush()
-                    nextRefreshNanos = now + refreshIntervalNanos
-                }
                 val count = try {
                     socket.getInputStream().read(buffer)
                 } catch (_: SocketTimeoutException) {

@@ -223,26 +223,18 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 update {
                     copy(
                         isKeepaliveRunning = keepaliveActive,
-                        isConnected = when (runtime.keepaliveStatus) {
-                            KeepaliveRuntimeStatus.STARTING,
-                            KeepaliveRuntimeStatus.RUNNING -> true
-                            KeepaliveRuntimeStatus.FAILED -> false
-                            KeepaliveRuntimeStatus.STOPPED -> isConnected
-                        },
                         isFccEnabled = hasWriteEvidence,
                         fccLastWriteAtMs = runtime.lastSuccessfulWriteAtMs,
                         message = if (
                             runtime.keepaliveStatus == KeepaliveRuntimeStatus.FAILED &&
                             runtime.error != null
                         ) runtime.error else message,
-                        status = when {
-                            status == "applying" || status == "restoring" -> status
-                            runtime.keepaliveStatus == KeepaliveRuntimeStatus.FAILED -> "monitor_failed"
-                            keepaliveActive -> "waiting_home_point"
-                            hasWriteEvidence && isConnected -> "fcc_written"
-                            !hasWriteEvidence && status == "fcc_written" && isConnected -> "connected"
-                            else -> status
-                        }
+                        status = resolveFccRuntimeStatus(
+                            currentStatus = status,
+                            isConnected = isConnected,
+                            keepaliveStatus = runtime.keepaliveStatus,
+                            hasWriteEvidence = hasWriteEvidence
+                        )
                     )
                 }
             }
@@ -664,6 +656,11 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
      * once after Home Point is recorded, then stops itself.
      */
     fun startKeepalive(): Boolean {
+        if (!_state.value.isConnected) {
+            log("Connect to the controller before starting Home Point monitoring")
+            update { copy(status = "disconnected", message = "Connect to the controller first.") }
+            return false
+        }
         if (_state.value.isKeepaliveRunning) {
             log("Home Point monitor already running")
             return true
@@ -677,8 +674,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             update {
                 copy(
                     status = "monitor_failed",
-                    isConnected = false,
-                    message = "Could not start Home Point monitor. Tap Connect to retry."
+                    message = "Could not start Home Point monitor. Tap Retry Home Point."
                 )
             }
             false
@@ -1458,9 +1454,17 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 "connect" -> acceptedHardware(command) { connect() }
                 "fcc_enable" -> acceptedHardware(command, requireConnected = true) { enableFcc() }
                 "ce_restore" -> acceptedHardware(command, requireConnected = true) { disableFcc() }
-                "keepalive_start" -> accepted(command) { startKeepalive() }
+                "keepalive_start" -> if (!_state.value.isConnected) {
+                    lanError(412, "controller_not_connected")
+                } else {
+                    acceptedBoolean(command, startKeepalive(), "monitor_start_failed")
+                }
                 "keepalive_stop" -> accepted(command) { stopKeepalive() }
-                "home_point_wait_start" -> accepted(command) { startKeepalive() }
+                "home_point_wait_start" -> if (!_state.value.isConnected) {
+                    lanError(412, "controller_not_connected")
+                } else {
+                    acceptedBoolean(command, startKeepalive(), "monitor_start_failed")
+                }
                 "home_point_wait_stop" -> accepted(command) { stopKeepalive() }
                 "led_read" -> acceptedBoolean(command, refreshLedState(), "led_busy")
                 "led_on" -> acceptedBoolean(command, setLed(true), "led_busy")

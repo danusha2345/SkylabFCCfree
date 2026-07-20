@@ -53,4 +53,24 @@ class FccRuntimeTrackerTest {
         assertEquals(KeepaliveRuntimeStatus.STOPPED, tracker.state.value.keepaliveStatus)
         assertTrue(tracker.state.value.lastSuccessfulWriteAtMs == null)
     }
+
+    @Test
+    fun monitorLifecycleNeverManufacturesOrErasesControllerConnection() {
+        assertEquals(
+            "monitor_failed",
+            resolveFccRuntimeStatus("connected", true, KeepaliveRuntimeStatus.FAILED, false)
+        )
+        assertEquals(
+            "disconnected",
+            resolveFccRuntimeStatus("disconnected", false, KeepaliveRuntimeStatus.FAILED, false)
+        )
+        assertEquals(
+            "disconnected",
+            resolveFccRuntimeStatus("disconnected", false, KeepaliveRuntimeStatus.STARTING, false)
+        )
+        assertEquals(
+            "disconnected",
+            resolveFccRuntimeStatus("disconnected", false, KeepaliveRuntimeStatus.RUNNING, false)
+        )
+    }
 }

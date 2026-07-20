@@ -41,10 +41,11 @@ CRC-16. Поэтому это не false-positive scan внутри arbitrary wr
 восстанавливался. Continuous `40007 wire_exchange` polling запрещён.
 В 37 сохранённых active capture-сеансах socket жил `0.967–2.205 s`; ни один из
 32 active `03:44` не получил matching response, а все 42 найденных `03:44` были
-пассивными push. Production-решение должно использовать один socket и
-непрерывно читать уже публикуемую telemetry. В `1.5.20` экспериментально
-проверяется refresh того же primer раз в секунду в том же socket; это не polling
-новыми connections и пока требует live-подтверждения на RC2.
+пассивными push. Production-решение использует один read-only socket и
+непрерывно читает уже публикуемую telemetry. Live A/B `1.5.23` подтвердил, что
+socket без единого write сразу получает полный поток: 128 валидных кадров
+примерно за секунду, включая два `03:44` с текущим `home_state=0x0047`. Любой
+primer исключён.
 
 ## `40009`: узкий broker stream
 
