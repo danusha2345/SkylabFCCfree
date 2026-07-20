@@ -36,4 +36,15 @@ class FccKeepaliveServicePolicyTest {
     fun automaticApplyWaitsForPostHomePointRegionSettle() {
         assertEquals(2_000L, FccKeepaliveService.POST_HOME_POINT_SETTLE_DELAY_MS)
     }
+
+    @Test
+    fun rcPro2UsesPinnedBroadTelemetryPortForHomePoint() {
+        assertEquals(40009, FccKeepaliveService.selectHomePointMonitorPort("rc520", 40009))
+    }
+
+    @Test
+    fun otherControllersKeepUsingPort40007ForHomePoint() {
+        assertEquals(40007, FccKeepaliveService.selectHomePointMonitorPort("rc331", 40009))
+        assertEquals(40007, FccKeepaliveService.selectHomePointMonitorPort("rc520", null))
+    }
 }

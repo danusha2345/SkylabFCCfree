@@ -33,7 +33,7 @@ internal class HomePointSessionGate {
 }
 
 internal object HomePointProtocol {
-    fun isRecorded(frame: ByteArray): Boolean? {
+    fun isRecorded(frame: ByteArray, allowRelayedAppRoute: Boolean = false): Boolean? {
         if (frame.size < 35 || frame[0] != 0x55.toByte()) return null
         val length = (frame[1].toInt() and 0xFF) or
             ((frame[2].toInt() and 0x03) shl 8)
@@ -46,7 +46,10 @@ internal object HomePointProtocol {
 
         val senderType = frame[4].toInt() and 0x1F
         val destinationType = frame[5].toInt() and 0x1F
-        if (senderType !in setOf(0x03, 0x0E) || destinationType != 0x02) return null
+        val directComponentRoute = senderType in setOf(0x03, 0x0E) && destinationType == 0x02
+        val relayedAppRoute = allowRelayedAppRoute &&
+            senderType == 0x02 && destinationType == 0x02
+        if (!directComponentRoute && !relayedAppRoute) return null
         // The live-confirmed Avata/O4 Home Point layout is an unencrypted
         // passive telemetry push (cmdType=0x00). The production listener sends
         // no request frames and parses only this fixed push layout.
@@ -144,7 +147,8 @@ internal class WrappedDumlFrameParser {
 /** One connection that remains open only until Home Point is observed. */
 internal class HomePointMonitor(
     private val host: String = "127.0.0.1",
-    private val port: Int = DumlTransport.PORT_LED
+    private val port: Int = DumlTransport.PORT_LED,
+    private val allowRelayedAppRoute: Boolean = false
 ) {
     fun waitUntilRecorded(
         sessionGate: HomePointSessionGate = HomePointSessionGate(),
@@ -176,7 +180,7 @@ internal class HomePointMonitor(
                     }
                 }
                 for (frame in parser.feed(buffer, count)) {
-                    val recorded = HomePointProtocol.isRecorded(frame) ?: continue
+                    val recorded = HomePointProtocol.isRecorded(frame, allowRelayedAppRoute) ?: continue
                     if (sessionGate.observe(recorded)) {
                         return HomePointWaitResult.RECORDED
                     }

@@ -67,4 +67,35 @@ class HomePointRetryPolicyTest {
             )
         )
     }
+
+    @Test
+    fun everyControllerStreamReconnectsUntilHomePointWhenPersistentWaitIsEnabled() {
+        assertEquals(
+            HomePointWaitDecision.RETRY_PERSISTENT_STREAM,
+            HomePointRetryPolicy.decide(
+                HomePointWaitResult.STREAM_DISCONNECTED, 0, 2,
+                sessionArmed = false,
+                armedStreamReconnectUsed = false,
+                keepWaitingUntilRecorded = true
+            )
+        )
+        assertEquals(
+            HomePointWaitDecision.RETRY_PERSISTENT_STREAM,
+            HomePointRetryPolicy.decide(
+                HomePointWaitResult.STREAM_DISCONNECTED, 0, 2,
+                sessionArmed = true,
+                armedStreamReconnectUsed = true,
+                keepWaitingUntilRecorded = true
+            )
+        )
+        assertEquals(
+            HomePointWaitDecision.RETRY_PERSISTENT_STREAM,
+            HomePointRetryPolicy.decide(
+                HomePointWaitResult.CONNECT_FAILED, 99, 2,
+                sessionArmed = false,
+                armedStreamReconnectUsed = true,
+                keepWaitingUntilRecorded = true
+            )
+        )
+    }
 }

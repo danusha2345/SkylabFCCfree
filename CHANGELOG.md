@@ -1,5 +1,22 @@
 # История изменений
 
+## 1.5.27 — 2026-07-20
+
+- RC Pro 2 (`rc520`) Home Point listener теперь использует широкий telemetry
+  stream на pinned Connect port `40009`, где live Air 3S capture стабильно
+  публикует `03:44`; остальные контроллеры сохраняют path `40007`.
+- Relayed route `0xA2 → 0x82` принимается для Home Point только в явно
+  выбранном RC Pro 2 path. CRC, push type, `03:44`, payload length и
+  `home_state` validation остаются обязательными.
+- На всех поддерживаемых пультах listener теперь ждёт до
+  `home_state=true` или явной отмены, включая временные разрывы stream.
+  Повторное подключение выполняется через 5 секунд; частые открытия `40007`
+  физически нарушали radio link в RC2 hardware test.
+- Чистый hardware test зафиксировал исходный дефект: listener завершился
+  `monitor_failed` до Home Point, затем `03:44=0x0047` появился при AUTO
+  attempt `null` и физическом CE. Ручной recovery в той же сессии записал
+  `42/42` и сменил SDR config `09:21` с 29 на 31 B.
+
 ## 1.5.26 — 2026-07-20
 
 - Успешный ручной FCC recovery теперь очищает старый terminal
@@ -16,7 +33,9 @@
 - Cross-model Air 3S + RC Pro 2 проверка опровергла универсальность кандидата:
   `09:43=0000` наблюдается и в CE, и в физически подтверждённом FCC. Для этой
   связки `09:21` доказывает смену SDR config shape, но не является отдельным
-  RF-power boolean. Добавлена полная live-карта с cold-boot Auto-FCC evidence.
+  RF-power boolean. Добавлена полная live-карта: неоднозначный первый reboot и
+  чистый cold-boot failure, где listener завершился до Home Point и AUTO apply
+  не начинался.
 
 ## 1.5.25 — 2026-07-20
 

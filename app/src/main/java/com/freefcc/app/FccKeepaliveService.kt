@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import android.os.IBinder
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
@@ -49,7 +50,7 @@ internal enum class AutoFccServiceStartResult {
  * Activity lifecycle while the user is in DJI Fly.
  *
  * Home Point is read from passive direct/wrapped `03:44` telemetry through one
- * port-40007 connection. No periodic FCC writes are performed.
+ * model-selected proxy connection. No periodic FCC writes are performed.
  */
 class FccKeepaliveService : Service() {
 
@@ -62,12 +63,20 @@ class FccKeepaliveService : Service() {
         private const val INITIAL_CONNECT_RETRY_DELAY_MS = 15_000L
         private const val MAX_INITIAL_CONNECT_ATTEMPTS = 2
         private const val ARMED_STREAM_RETRY_DELAY_MS = 2_000L
+        private const val STREAM_RETRY_DELAY_MS = 5_000L
         internal const val POST_HOME_POINT_SETTLE_DELAY_MS = 2_000L
         private const val APPLY_CONNECT_RETRY_DELAY_MS = 5_000L
         private const val PREFS_NAME = "freefcc"
         private const val PREF_AUTO_FCC = "auto_fcc"
         private const val PREF_KEEPALIVE = "keepalive_running"
         private val requestGate = AutoFccRequestGate()
+
+        internal fun selectHomePointMonitorPort(controllerModel: String, pinnedPort: Int?): Int =
+            if (controllerModel.equals("rc520", ignoreCase = true) && pinnedPort != null) {
+                pinnedPort
+            } else {
+                DumlTransport.PORT_LED
+            }
 
         @Synchronized
         fun start(context: Context): Boolean {
@@ -273,6 +282,16 @@ class FccKeepaliveService : Service() {
             val workerJob = currentCoroutineContext()[Job]
             FccRuntime.tracker.serviceRunning()
             val homePointSession = HomePointSessionGate()
+            val controllerModel = Build.DEVICE.orEmpty()
+            val monitorPort = selectHomePointMonitorPort(
+                controllerModel = controllerModel,
+                pinnedPort = FccRuntime.tracker.state.value.controllerPort
+            )
+            val allowRelayedAppRoute = controllerModel.equals("rc520", ignoreCase = true) &&
+                monitorPort != DumlTransport.PORT_LED
+            FccViewModel.logServiceEvent(
+                "AUTO FCC: Home Point listener using port $monitorPort on $controllerModel"
+            )
             var homePointRecorded = false
             var initialConnectAttempts = 0
             var armedStreamReconnectUsed = false
@@ -290,7 +309,10 @@ class FccKeepaliveService : Service() {
                 }
                 monitorConnectionOrdinal++
                 val waitResult = try {
-                    HomePointMonitor().waitUntilRecorded(homePointSession) {
+                    HomePointMonitor(
+                        port = monitorPort,
+                        allowRelayedAppRoute = allowRelayedAppRoute
+                    ).waitUntilRecorded(homePointSession) {
                         requestGate.isCurrent(generation) &&
                             workerJob?.isActive != false &&
                             !Port40007Lock.shouldYieldToLed()
@@ -307,7 +329,8 @@ class FccKeepaliveService : Service() {
                     initialConnectAttempts = initialConnectAttempts,
                     maxInitialConnectAttempts = MAX_INITIAL_CONNECT_ATTEMPTS,
                     sessionArmed = sessionArmed,
-                    armedStreamReconnectUsed = armedStreamReconnectUsed
+                    armedStreamReconnectUsed = armedStreamReconnectUsed,
+                    keepWaitingUntilRecorded = true
                 )
                 when (waitDecision) {
                     HomePointWaitDecision.RECORDED -> homePointRecorded = true
@@ -319,6 +342,12 @@ class FccKeepaliveService : Service() {
                         // cancellation/re-entry cannot manufacture extra opens.
                         armedStreamReconnectUsed = true
                         delay(ARMED_STREAM_RETRY_DELAY_MS)
+                    }
+                    HomePointWaitDecision.RETRY_PERSISTENT_STREAM -> {
+                        // Every controller keeps waiting until Home Point.
+                        // Reconnects are deliberately rate-limited because
+                        // frequent 40007 opens disrupted the RC2 radio link.
+                        delay(STREAM_RETRY_DELAY_MS)
                     }
                     HomePointWaitDecision.FAIL_CLOSED -> {
                         // Reopening an established 40007 stream repeatedly was

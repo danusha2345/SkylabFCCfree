@@ -86,6 +86,38 @@ class HomePointMonitorTest {
     }
 
     @Test
+    fun relayedAppRouteRequiresExplicitOptIn() {
+        val relayed = relayedHomePointFrame(0x0047)
+
+        assertEquals(null, HomePointProtocol.isRecorded(relayed))
+        assertTrue(HomePointProtocol.isRecorded(relayed, allowRelayedAppRoute = true)!!)
+    }
+
+    @Test
+    fun monitorAcceptsRelayedAir3sHomePointOnOptInPort() {
+        val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
+        val thread = Thread {
+            server.use { listener ->
+                listener.accept().use { socket ->
+                    socket.getOutputStream().apply {
+                        write(relayedHomePointFrame(0x0047))
+                        flush()
+                    }
+                }
+            }
+        }
+        thread.start()
+
+        val result = HomePointMonitor(
+            port = server.localPort,
+            allowRelayedAppRoute = true
+        ).waitUntilRecorded { true }
+
+        thread.join(2_000)
+        assertEquals(HomePointWaitResult.RECORDED, result)
+    }
+
+    @Test
     fun monitorUsesOneConnectionAndStopsAfterRecordedBit() {
         val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         val serverError = AtomicReference<Throwable>()
@@ -459,5 +491,21 @@ class HomePointMonitorTest {
             payload = ByteArray(85)
         )
     )
+
+    private fun relayedHomePointFrame(homeState: Int): ByteArray {
+        val payload = ByteArray(96)
+        payload[20] = (homeState and 0xFF).toByte()
+        payload[21] = ((homeState shr 8) and 0xFF).toByte()
+        return DumlBuilder().buildFrame(
+            DumlFrame(
+                sender = 0xA2,
+                cmdType = 0x00,
+                cmdSet = 0x03,
+                cmdId = 0x44,
+                dst = 0x82,
+                payload = payload
+            )
+        )
+    }
 
 }

@@ -184,8 +184,11 @@ Outdoor в CE-регионе подтвердил: FCC, отправленный
 CE в момент записи точки; текущий lightweight keepalive его не восстанавливает.
 Indoor US-spoof подтвердил итоговый FCC после US Home Point. Поэтому Auto-FCC
 должен применять полный профиль после `home_state bit0=1`, а не сразу при boot.
-Реализация использует один долгоживущий `40007` socket только до этого события;
-после обнаружения Home Point listener закрывается до FCC write.
+Реализация использует выбранный для модели passive stream только до этого
+события; после обнаружения Home Point listener закрывается до FCC write. Начиная
+с `1.5.27`, временный разрыв не прекращает ожидание: stream переподключается
+через 5 s, чтобы не повторять подтверждённый RC2 link disruption от частых
+открытий.
 
 Что ещё не доказано: настоящий radio-mode readback. Legacy name `06:21 RC Power
 Mode CE/FCC Get` найден, но direct `40009` route не ответил и payload layout
