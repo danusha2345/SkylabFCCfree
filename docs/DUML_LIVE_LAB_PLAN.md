@@ -65,6 +65,11 @@ Auto-FCC рабочим.
 | Focused tests | HomePointMonitor tests проходят, включая same-socket refresh при telemetry и read timeout |
 | RC2 runtime | PENDING: socket живёт >10 s без link drop; затем fresh `false → true`, один full FCC apply |
 
+После установки опубликованного APK Android metadata была `1.5.20`, но UI/LAN
+продолжали показывать `1.5.19`: `APP_VERSION` оставался отдельной hardcoded
+строкой. В `1.5.21` единственным источником версии стал
+`BuildConfig.VERSION_NAME`; same-socket transport-код `1.5.20` не менялся.
+
 Полный inventory transports, command frequencies, payload evidence и privacy
 границы: [DUML_STREAM_MAP.md](DUML_STREAM_MAP.md).
 
