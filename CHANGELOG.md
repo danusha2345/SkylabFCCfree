@@ -1,5 +1,21 @@
 # История изменений
 
+## 1.5.19 — 2026-07-20
+
+- Auto-FCC больше не открывает Home Point listener до UI/serial probe и запуска
+  DJI Fly. При успешном foreground launch monitor ждёт фактический
+  `MainActivity.onStop()`; при LAN-команде из уже фонового FreeFCC стартует без
+  ожидания повторного lifecycle callback.
+- Persistent marker считается живым monitor только вместе с process-local
+  `STARTING/RUNNING`; stale marker проходит новый flight-app handoff.
+- Проверка `auto_fcc` и service start атомарны с `stop()`, поэтому поздний
+  background callback не может воскресить monitor после выключения Auto-FCC.
+- Автоматические serial/LED probes исключены из Auto-FCC startup. Startup LED
+  gate атомарно блокирует новые и отложенные readback после включения Auto-FCC;
+  ручные LED-команды не изменены.
+- Terminal Home Point error теперь содержит номер соединения, состояние
+  `armed` и факт расходования recovery budget для следующего live-теста.
+
 ## 1.5.18 — 2026-07-19
 
 - После подтверждённого `Home Point=false` Auto-FCC может один раз восстановить

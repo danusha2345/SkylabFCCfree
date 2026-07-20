@@ -29,6 +29,12 @@ internal object BootstrapRetryPolicy {
         result == BootstrapApplyResult.PRE_WRITE_CONNECT_FAILED
 }
 
+internal enum class AutoFccServiceStartResult {
+    DISABLED,
+    STARTED,
+    REASSERTED
+}
+
 /**
  * Foreground service that waits for the aircraft to record Home Point, applies
  * the complete FCC profile once, then stops. It runs independently of the
@@ -76,6 +82,20 @@ class FccKeepaliveService : Service() {
             // must not manufacture a new persistent request.
             preferences.edit().putBoolean(PREF_KEEPALIVE, true).apply()
             return !hadPersistentRequest
+        }
+
+        /** Atomically rejects a late auto-start after the user toggled Auto-FCC off. */
+        @Synchronized
+        internal fun startAutoIfEnabled(context: Context): AutoFccServiceStartResult {
+            val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            if (!preferences.getBoolean(PREF_AUTO_FCC, false)) {
+                return AutoFccServiceStartResult.DISABLED
+            }
+            return if (start(context)) {
+                AutoFccServiceStartResult.STARTED
+            } else {
+                AutoFccServiceStartResult.REASSERTED
+            }
         }
 
         @Synchronized
@@ -247,6 +267,7 @@ class FccKeepaliveService : Service() {
             var homePointRecorded = false
             var initialConnectAttempts = 0
             var armedStreamReconnectUsed = false
+            var monitorConnectionOrdinal = 0
             var monitorFailure: String? = null
             while (requestGate.isCurrent(generation) && !homePointRecorded) {
                 if (Port40007Lock.shouldYieldToLed()) {
@@ -258,6 +279,7 @@ class FccKeepaliveService : Service() {
                     delay(250)
                     continue
                 }
+                monitorConnectionOrdinal++
                 val waitResult = try {
                     HomePointMonitor().waitUntilRecorded(homePointSession) {
                         requestGate.isCurrent(generation) &&
@@ -270,13 +292,15 @@ class FccKeepaliveService : Service() {
                 if (waitResult == HomePointWaitResult.CONNECT_FAILED) {
                     initialConnectAttempts++
                 }
-                when (HomePointRetryPolicy.decide(
+                val sessionArmed = homePointSession.isArmedForRecordedEdge()
+                val waitDecision = HomePointRetryPolicy.decide(
                     result = waitResult,
                     initialConnectAttempts = initialConnectAttempts,
                     maxInitialConnectAttempts = MAX_INITIAL_CONNECT_ATTEMPTS,
-                    sessionArmed = homePointSession.isArmedForRecordedEdge(),
+                    sessionArmed = sessionArmed,
                     armedStreamReconnectUsed = armedStreamReconnectUsed
-                )) {
+                )
+                when (waitDecision) {
                     HomePointWaitDecision.RECORDED -> homePointRecorded = true
                     HomePointWaitDecision.RETRY_INITIAL_CONNECT -> {
                         delay(INITIAL_CONNECT_RETRY_DELAY_MS)
@@ -295,6 +319,7 @@ class FccKeepaliveService : Service() {
                         } else {
                             "Home Point stream unavailable; reopen FreeFCC or toggle Auto-FCC to retry"
                         }
+                        monitorFailure += " [connection=$monitorConnectionOrdinal, armed=$sessionArmed, recovery=$armedStreamReconnectUsed]"
                         break
                     }
                     HomePointWaitDecision.COOPERATIVE_STOP -> {

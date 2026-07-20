@@ -1,27 +1,31 @@
 package com.freefcc.app
 
-import java.util.concurrent.atomic.AtomicBoolean
-import java.util.concurrent.atomic.AtomicInteger
-
 /** Allows one actual startup LED read, with one extra lock-acquisition attempt. */
 internal class StartupLedReadGate(
     private val maxAcquireAttempts: Int = 2
 ) {
-    private val attempts = AtomicInteger(0)
-    private val inFlightOrCompleted = AtomicBoolean(false)
+    private var attempts = 0
+    private var inFlightOrCompleted = false
+    private var disabled = false
 
+    @Synchronized
+    fun disable() {
+        disabled = true
+    }
+
+    @Synchronized
     fun tryBegin(): Boolean {
-        if (attempts.get() >= maxAcquireAttempts) return false
-        if (!inFlightOrCompleted.compareAndSet(false, true)) return false
-        if (attempts.incrementAndGet() <= maxAcquireAttempts) return true
-        inFlightOrCompleted.set(false)
-        return false
+        if (disabled || attempts >= maxAcquireAttempts || inFlightOrCompleted) return false
+        inFlightOrCompleted = true
+        attempts++
+        return true
     }
 
     /** Returns true when a single delayed acquisition retry should be scheduled. */
+    @Synchronized
     fun finish(wireAttempted: Boolean): Boolean {
-        if (wireAttempted) return false
-        inFlightOrCompleted.set(false)
-        return attempts.get() < maxAcquireAttempts
+        if (wireAttempted || disabled) return false
+        inFlightOrCompleted = false
+        return attempts < maxAcquireAttempts
     }
 }

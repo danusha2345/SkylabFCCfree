@@ -37,11 +37,28 @@ reconnect loop, но единственный разрыв established stream п
 Home Point transition. Ручной `Re-Send FCC Request` после Home Point выполнил
 42/42 записи и физически включил FCC. В `1.5.18` разрешён ровно один reconnect,
 только если тот же session gate уже видел CRC-valid `Home Point=false`;
-повторный разрыв снова завершается fail-closed. RC2 live-retest `1.5.18` остаётся
-PENDING.
+повторный разрыв снова завершается fail-closed. Live-retest `1.5.18` снова
+завершился до FCC write: monitor был запрошен раньше UI probe и запуска DJI Fly,
+а после Home Point статус показал terminal stream disconnect и
+`fcc_sequence_written=false`. В hardware-test candidate `1.5.19` Auto-FCC не
+делает startup serial/LED probes, запускает DJI Fly и ждёт фактический
+`MainActivity.onStop()` перед service start. Поздний start после OFF блокируется
+атомарно; terminal failure показывает `connection/armed/recovery`.
 
 Полный inventory transports, command frequencies, payload evidence и privacy
 границы: [DUML_STREAM_MAP.md](DUML_STREAM_MAP.md).
+
+## Hardware-test candidate `1.5.19`
+
+| Проверка | Результат |
+|---|---|
+| Live regression `1.5.18` | 2026-07-20 17:22 MSK: `monitor requested → controller connected → DJI Fly launched`; после Home Point `Home Point stream disconnected`, `fcc_sequence_written=false` |
+| Startup ordering | Cold UI: successful DJI launch → `MainActivity.onStop` → atomic monitor start; background LAN: immediate atomic start; existing live monitor: reassert без UI/LED yield |
+| Race guards | OFF очищает pending handoff и атомарно сериализован с start; startup LED gate запрещает новые и delayed reads при Auto-FCC |
+| Diagnostics | Terminal failure включает `connection`, `armed`, `recovery` |
+| Local gate | 90 JVM tests, `lintDebug`, `assembleDebug`, `git diff --check` — успешно |
+| Independent review | Два агента: GO для experimental hardware release; стабильный verdict требует live RC2 test без ручного resend |
+| RC2 update / runtime | PENDING после публикации `v1.5.19` |
 
 ## Release evidence `1.5.18`
 

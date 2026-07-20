@@ -90,6 +90,16 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+
+    override fun onStop() {
+        super.onStop()
+        viewModel.onAppBackgrounded()
+    }
+
+    override fun onStart() {
+        super.onStart()
+        viewModel.onAppForegrounded()
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════

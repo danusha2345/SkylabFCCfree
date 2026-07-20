@@ -20,12 +20,10 @@ class BootReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent?) {
         if (intent?.action != Intent.ACTION_BOOT_COMPLETED) return
 
-        val prefs = context.getSharedPreferences("freefcc", Context.MODE_PRIVATE)
-        if (prefs.getBoolean("auto_fcc", false)) {
-            // Some controller builds can reject a background foreground-service
-            // start. Preserve auto_fcc so opening the app can retry, but never
-            // let an OS-delivered BOOT_COMPLETED crash the process.
-            runCatching { FccKeepaliveService.start(context) }
-        }
+        // Some controller builds can reject a background foreground-service
+        // start. Preserve auto_fcc so opening the app can retry, but never let
+        // an OS-delivered BOOT_COMPLETED crash the process. The preference
+        // check and service request share the same lock as stop().
+        runCatching { FccKeepaliveService.startAutoIfEnabled(context) }
     }
 }

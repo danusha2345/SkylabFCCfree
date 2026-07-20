@@ -28,4 +28,24 @@ class StartupLedReadGateTest {
         assertFalse(gate.finish(wireAttempted = false))
         assertFalse(gate.tryBegin())
     }
+
+    @Test
+    fun disablingBeforeReadRejectsStartupProbe() {
+        val gate = StartupLedReadGate()
+
+        gate.disable()
+
+        assertFalse(gate.tryBegin())
+    }
+
+    @Test
+    fun disablingAnInflightReadPreventsItsDelayedRetry() {
+        val gate = StartupLedReadGate()
+
+        assertTrue(gate.tryBegin())
+        gate.disable()
+
+        assertFalse(gate.finish(wireAttempted = false))
+        assertFalse(gate.tryBegin())
+    }
 }

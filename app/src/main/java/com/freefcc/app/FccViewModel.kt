@@ -97,7 +97,7 @@ private class LanWriteLease(
 class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     companion object {
-        const val APP_VERSION = "1.5.18"
+        const val APP_VERSION = "1.5.19"
 
         private const val MAX_LOG_ENTRIES = 200
         private val processLogLock = Any()
@@ -205,7 +205,8 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     private val transport = DumlTransport()
     private val prefs = app.getSharedPreferences("freefcc", Context.MODE_PRIVATE)
     private var initialized = false
-    private var autoFccJob: Job? = null
+    private val autoFccStartupCoordinator = AutoFccStartupCoordinator()
+    private val activityForeground = AtomicBoolean(true)
     private val startupLedReadGate = StartupLedReadGate()
     @Volatile private var aircraftIdentityVerified = false
 
@@ -340,7 +341,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     )
                 }
                 log("DUML proxy restored after app reopen")
-                refreshLedStateAfterStartup()
+                if (!_state.value.autoFcc) refreshLedStateAfterStartup()
                 if (detectedPort > 0) {
                     log("DUML port detected: $detectedPort")
                 }
@@ -405,7 +406,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             log("Auto-FCC enabled — will wait for Home Point before applying")
             autoConnectAndApply()
         } else {
-            autoFccJob?.cancel()
+            autoFccStartupCoordinator.cancel()
             FccKeepaliveService.stop(app)
             update {
                 copy(
@@ -417,17 +418,59 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /**
-     * Starts the one-shot Home Point monitor independently of the optional UI
-     * connection probe, then launches DJI Fly. The foreground service applies
-     * the full FCC profile once after Home Point is recorded.
-     */
-    private fun autoConnectAndApply() {
+    /** Launches the flight app before requesting the persistent Home Point listener. */
+    private fun launchFlightAppAndRequestMonitor() {
+        val deferred = autoFccStartupCoordinator.launchAndDeferMonitor(
+            isEnabled = { _state.value.autoFcc },
+            isAppForeground = { activityForeground.get() },
+            launchFlightApp = {
+                log("Auto-FCC: launching DJI Fly; monitor waits for Activity handoff")
+                launchDjiFly()
+            },
+            startMonitor = { requestHomePointMonitor() }
+        )
+        if (deferred) {
+            log("Auto-FCC: waiting for FreeFCC to leave foreground before monitor start")
+        } else if (_state.value.autoFcc) {
+            log("Auto-FCC: Home Point monitor requested without deferred Activity handoff")
+        } else {
+            log("Auto-FCC: handoff cancelled because Auto-FCC is off")
+        }
+    }
+
+    /** Called by MainActivity.onStop after a successful flight-app handoff. */
+    fun onAppBackgrounded() {
+        activityForeground.set(false)
+        if (autoFccStartupCoordinator.onAppBackgrounded(
+                isEnabled = { _state.value.autoFcc },
+                startMonitor = { requestHomePointMonitor() }
+            )
+        ) {
+            log("Auto-FCC: Activity handoff complete; Home Point monitor requested")
+        }
+    }
+
+    fun onAppForegrounded() {
+        activityForeground.set(true)
+    }
+
+    private fun requestHomePointMonitor() {
         val monitorWasAlreadyRequested = FccKeepaliveService.isRunningFlagSet(app)
         try {
-            FccKeepaliveService.start(app)
-            update { copy(message = "Waiting for Home Point in DJI Fly...") }
-            log("Auto-FCC: Home Point monitor requested")
+            when (FccKeepaliveService.startAutoIfEnabled(app)) {
+                AutoFccServiceStartResult.DISABLED -> {
+                    update { copy(autoFcc = false, message = "Auto-FCC off") }
+                    log("Auto-FCC: monitor start rejected because Auto-FCC is off")
+                }
+                AutoFccServiceStartResult.STARTED -> {
+                    update { copy(message = "Waiting for Home Point in DJI Fly...") }
+                    log("Auto-FCC: Home Point monitor requested after flight-app handoff")
+                }
+                AutoFccServiceStartResult.REASSERTED -> {
+                    update { copy(message = "Waiting for Home Point in DJI Fly...") }
+                    log("Auto-FCC: existing Home Point monitor reasserted after flight-app handoff")
+                }
+            }
         } catch (e: Exception) {
             if (!monitorWasAlreadyRequested) {
                 prefs.edit().putBoolean("auto_fcc", false).apply()
@@ -443,95 +486,25 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             }
             log("Auto-FCC reassert failed, but the existing Home Point request remains active: ${e.message}")
         }
+    }
 
-        val hardwareLease = beginHardwareOp()
-        if (hardwareLease == null) {
-            log("Auto-FCC: UI connection probe skipped while hardware is busy; Home Point monitor remains active")
-            launchDjiFly()
-            refreshLedStateAfterStartup()
-            return
-        }
-        autoFccJob = runOnIO {
-            try {
-                // Wait a moment for the UI to render
-                delay(1000)
-
-                // Pause the persistent 40007 listener while the one-shot proxy
-                // and serial probe uses the same local DUML broker.
-                val portLease = Port40007Lock.acquireForLed()
-                if (portLease == null) {
-                    log("Auto-FCC: UI connection probe skipped; Home Point monitor remains active")
-                    launchDjiFly()
-                    refreshLedStateAfterStartup()
-                    return@runOnIO
-                }
-
-                update { copy(status = "connecting", message = "Auto-connecting...") }
-                try {
-                    if (!transport.connect()) {
-                        log("Auto-FCC: UI probe did not find the controller; Home Point monitor keeps its bounded startup attempts")
-                        update {
-                            copy(
-                                status = "disconnected",
-                                message = "Waiting for controller and Home Point in DJI Fly..."
-                            )
-                        }
-                        launchDjiFly()
-                        refreshLedStateAfterStartup()
-                        return@runOnIO
-                    }
-
-                    FccRuntime.tracker.beginHardwareSession()
-                    log("Auto-FCC: controller connected")
-                    val detectedPort = transport.getDetectedPort()
-                    if (detectedPort > 0) {
-                        log("DUML port detected: $detectedPort")
-                    }
-                    val serial = transport.probeSerial(1500)
-                    if (serial.isNotEmpty()) {
-                        aircraftIdentityVerified = true
-                        prefs.edit().putString("aircraft_serial", serial).apply()
-                    } else {
-                        aircraftIdentityVerified = false
-                    }
-                    update {
-                        copy(
-                            status = "connected",
-                            isConnected = true,
-                            aircraftSerial = serial,
-                            message = "Connected. Waiting for Home Point..."
-                        )
-                    }
-                    if (serial.isNotEmpty()) log("Aircraft serial: $serial")
-                } finally {
-                    Port40007Lock.releaseFromLed(portLease)
-                }
-
-                log("Auto-FCC: launching DJI Fly")
-                launchDjiFly()
-                refreshLedStateAfterStartup()
-                // Do not write another non-terminal UI message here: the
-                // service may already have published a terminal monitor error.
-                log("Auto-FCC: UI startup flow completed; service owns Home Point status")
-            } catch (_: CancellationException) {
-                // The foreground monitor intentionally outlives this ViewModel
-                // and is stopped synchronously by toggleAutoFcc(false).
-                log("Auto-FCC: UI connection flow cancelled")
-                update {
-                    copy(
-                        status = if (isConnected) "connected" else "disconnected",
-                        message = "Auto-FCC stopped",
-                        isBusy = false,
-                        busyProgress = 0f
-                    )
-                }
-            } catch (e: Exception) {
-                log("Auto-FCC error: ${e.message}")
-                update { copy(status = "disconnected", message = "Auto-FCC error: ${e.message}", isBusy = false, busyProgress = 0f) }
-            } finally {
-                hardwareLease.close()
-                autoFccJob = null
-            }
+    /**
+     * Launches DJI Fly, then gives the persistent listener sole ownership of
+     * the proxy. Optional serial and LED probes are intentionally excluded
+     * from Auto-FCC startup; users can request them explicitly after the
+     * one-shot Home Point monitor reaches a terminal state.
+     */
+    private fun autoConnectAndApply() {
+        startupLedReadGate.disable()
+        val runtimeStatus = FccRuntime.tracker.state.value.keepaliveStatus
+        val liveMonitor = FccKeepaliveService.isRunningFlagSet(app) &&
+            (runtimeStatus == KeepaliveRuntimeStatus.STARTING ||
+                runtimeStatus == KeepaliveRuntimeStatus.RUNNING)
+        if (liveMonitor) {
+            log("Auto-FCC: existing Home Point monitor retained; flight-app relaunch skipped")
+            requestHomePointMonitor()
+        } else {
+            launchFlightAppAndRequestMonitor()
         }
     }
 
@@ -604,7 +577,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 portLease?.let(Port40007Lock::releaseFromLed)
                 hardwareLease.close()
             }
-            if (connected) refreshLedStateAfterStartup()
+            if (connected && !_state.value.autoFcc) refreshLedStateAfterStartup()
         }
         return true
     }
@@ -753,7 +726,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
      * fallbacks for older/enterprise controllers. Auto-FCC can continue waiting
      * for Home Point in the background while the flight app runs.
      */
-    fun launchDjiFly() {
+    fun launchDjiFly(): Boolean {
         val pm = app.packageManager
         // Try the standard launch intent first
         var intent = pm.getLaunchIntentForPackage("dji.go.v5")
@@ -762,7 +735,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             try {
                 app.startActivity(intent)
                 log("Launched DJI Fly")
-                return
+                return true
             } catch (_: Exception) {}
         }
 
@@ -780,7 +753,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             try {
                 app.startActivity(explicitIntent)
                 log("Launched DJI Fly")
-                return
+                return true
             } catch (_: Exception) {}
         }
 
@@ -791,7 +764,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             try {
                 app.startActivity(intent)
                 log("Launched DJI Go 4")
-                return
+                return true
             } catch (_: Exception) {}
         }
 
@@ -802,11 +775,12 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             try {
                 app.startActivity(intent)
                 log("Launched DJI Pilot 2")
-                return
+                return true
             } catch (_: Exception) {}
         }
 
         log("DJI Fly, DJI Go 4, or DJI Pilot 2 is not installed or cannot launch")
+        return false
     }
 
     // --- 4G ---
@@ -922,6 +896,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     // --- LED ---
 
     private fun refreshLedStateAfterStartup() {
+        if (_state.value.autoFcc) return
         if (!startupLedReadGate.tryBegin()) return
         if (!refreshLedState(::finishStartupLedRead)) {
             finishStartupLedRead(wireAttempted = false)
