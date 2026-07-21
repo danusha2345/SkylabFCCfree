@@ -141,6 +141,9 @@ The GPS actions use the model-independent little-endian hash `82 95 42 c5`
 wrapped read-only `03:F8` attempts and stops after the first validated reply.
 `gps_on` and `gps_off` make at most three bounded `03:F9 write → single 03:F8
 readback` attempts and stop immediately when the requested state is verified.
+Each cycle waits 1.5 seconds after the write because live `rc520` evidence
+showed that GNSS applies the parameter asynchronously; retries are separated by
+one additional second.
 They never poll the proxy in the background:
 
 ```bash

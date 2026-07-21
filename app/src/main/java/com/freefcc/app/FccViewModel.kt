@@ -1116,7 +1116,10 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         port = DumlTransport.PORT_LED
                     )
                     anyWriteSucceeded = anyWriteSucceeded || writeSucceeded
-                    delay(200)
+                    // Live rc520 evidence shows that GNSS applies 03:F9
+                    // asynchronously. Reading after 200 ms observed the old
+                    // value, while a later manual press saw the new state.
+                    delay(1_500)
 
                     readback = readGpsState(DumlTransport(), attempts = 1)
                     if (readback?.state == expectedState) {
@@ -1125,7 +1128,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     }
                     if (attempt < 3) {
                         log("GPS $requestedLabel not verified; retrying write")
-                        delay(250)
+                        delay(1_000)
                     }
                 }
 

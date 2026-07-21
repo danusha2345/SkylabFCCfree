@@ -976,12 +976,6 @@ private fun UpdatePage(state: AppState, viewModel: FccViewModel) {
 
 @Composable
 private fun FccHeader(state: AppState) {
-    val (connectionLabel, connectionColor) = when {
-        state.status == "connecting" -> "Connecting" to Amber
-        state.isConnected -> "Session ready" to Green
-        state.status == "error" -> "Error" to Red
-        else -> "Offline" to TextGray
-    }
     val versionAndModel = if (state.controllerModel.isNotEmpty()) {
         "v${FccViewModel.APP_VERSION} · ${state.controllerModel}"
     } else {
@@ -1009,27 +1003,6 @@ private fun FccHeader(state: AppState) {
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.weight(1f)
         )
-        Spacer(Modifier.width(8.dp))
-        Surface(
-            color = connectionColor.copy(0.1f),
-            shape = CircleShape,
-            border = BorderStroke(1.dp, connectionColor.copy(0.3f))
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-            ) {
-                Box(Modifier.size(6.dp).background(connectionColor, CircleShape))
-                Spacer(Modifier.width(6.dp))
-                Text(
-                    connectionLabel,
-                    color = connectionColor,
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.SemiBold,
-                    maxLines = 1
-                )
-            }
-        }
     }
 }
 
