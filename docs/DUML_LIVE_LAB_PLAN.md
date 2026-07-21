@@ -266,6 +266,10 @@ AUTO `42/42`, затем физический FCC без ручного resend.
    только одиночный capture по явной bench-команде. Для production нужно искать
    пассивный источник уже принятой DJI Fly telemetry либо проверить один
    долгоживущий listener без повторных connects.
+   Live `1.5.28` на RC2 подтвердил компромисс production flow: короткие окна
+   мешают DJI Fly удерживать link до Home Point, зато затем полный FCC apply
+   срабатывает автоматически. В `1.5.29` reconnect backoff увеличен до 10 s,
+   а явная отмена доступна в UI и notification.
 6. Отдельно проверить outdoor persistence после Home Point: полный apply,
    обычная работа DJI Fly и aircraft session без каких-либо повторных FCC
    команд. Только фактический возврат в CE будет основанием добавлять новый

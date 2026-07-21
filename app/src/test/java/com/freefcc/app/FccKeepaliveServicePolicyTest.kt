@@ -47,4 +47,9 @@ class FccKeepaliveServicePolicyTest {
         assertEquals(40007, FccKeepaliveService.selectHomePointMonitorPort("rc331", 40009))
         assertEquals(40007, FccKeepaliveService.selectHomePointMonitorPort("rc520", null))
     }
+
+    @Test
+    fun homePointStreamRetriesEveryTenSeconds() {
+        assertEquals(10_000L, FccKeepaliveService.STREAM_RETRY_DELAY_MS)
+    }
 }

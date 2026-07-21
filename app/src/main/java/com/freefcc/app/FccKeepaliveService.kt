@@ -57,7 +57,7 @@ class FccKeepaliveService : Service() {
         private const val INITIAL_CONNECT_RETRY_DELAY_MS = 15_000L
         private const val MAX_INITIAL_CONNECT_ATTEMPTS = 2
         private const val ARMED_STREAM_RETRY_DELAY_MS = 2_000L
-        private const val STREAM_RETRY_DELAY_MS = 5_000L
+        internal const val STREAM_RETRY_DELAY_MS = 10_000L
         internal const val POST_HOME_POINT_SETTLE_DELAY_MS = 2_000L
         private const val APPLY_CONNECT_RETRY_DELAY_MS = 5_000L
         private const val PREFS_NAME = "freefcc"
@@ -599,12 +599,29 @@ class FccKeepaliveService : Service() {
             this, 0, openIntent,
             android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
         )
+        val stopIntent = Intent(this, FccKeepaliveService::class.java).apply {
+            action = ACTION_STOP
+        }
+        val stopPendingIntent = android.app.PendingIntent.getService(
+            this, 1, stopIntent,
+            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
+        )
         return builder
             .setContentTitle("FreeFCC")
             .setContentText("Waiting for Home Point...")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setOngoing(true)
             .setContentIntent(pendingIntent)
+            .addAction(
+                Notification.Action.Builder(
+                    android.graphics.drawable.Icon.createWithResource(
+                        this,
+                        android.R.drawable.ic_menu_close_clear_cancel
+                    ),
+                    "Cancel Auto FCC",
+                    stopPendingIntent
+                ).build()
+            )
             .build()
     }
 

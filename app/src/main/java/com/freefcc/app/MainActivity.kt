@@ -230,15 +230,23 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                     ProgressDisplay(state.busyProgress, state.message)
                 }
                 !state.isConnected -> {
-                    val connectLabel = if (state.status == "monitor_failed") "Retry Connect" else "Connect"
+                    val connectLabel = if (state.status == "monitor_failed") "Retry Auto FCC" else "Auto FCC"
                     if (state.message.isNotEmpty()) {
                         BodyText(state.message)
                         Spacer(Modifier.height(8.dp))
                     }
                     GlowButton(connectLabel, Cyan, enabled = !state.isHardwareBusy) { viewModel.connect() }
+                    Spacer(Modifier.height(8.dp))
+                    GlowButton("Send FCC Request", Cyan, filled = false, enabled = !state.isHardwareBusy) {
+                        viewModel.enableFcc()
+                    }
                 }
                 state.isKeepaliveRunning -> {
                     BodyText("Waiting for current Home Point. FCC will be applied automatically.", Amber)
+                    Spacer(Modifier.height(8.dp))
+                    GlowButton("Cancel Auto FCC", Red, filled = false) {
+                        viewModel.stopKeepalive()
+                    }
                 }
                 state.isFccEnabled -> {
                     BodyText("FCC request was written. RF mode is unknown; verify in DJI Fly.", Amber)
