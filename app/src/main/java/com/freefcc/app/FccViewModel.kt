@@ -158,7 +158,8 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             "duml_send",
             "duml_request",
             "duml_capture",
-            "wire_exchange"
+            "wire_exchange",
+            "local_socket_inventory"
         )
 
         private val FULL_SERIAL_PATTERN = Regex("^1581[0-9A-Z]{12,18}$")
@@ -1852,10 +1853,29 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 "duml_request" -> handleLanDuml(params, expectResponse = true)
                 "duml_capture" -> handleLanDumlCapture(params)
                 "wire_exchange" -> handleLanWireExchange(params)
+                "local_socket_inventory" -> handleLocalSocketInventory()
                 else -> lanError(400, "unknown_command")
             }
         } catch (e: IllegalArgumentException) {
             lanError(400, e.message ?: "invalid_parameters")
+        }
+    }
+
+    private fun handleLocalSocketInventory(): NetworkApiResponse {
+        if (_state.value.isKeepaliveRunning) {
+            return lanError(409, "auto_fcc_running")
+        }
+        val hardwareLease = beginHardwareOp() ?: return lanError(409, "hardware_busy")
+        return try {
+            val result = LocalSocketInventory.capture()
+            log(
+                "Local socket inventory: ${result.openTcpPorts.size} TCP ports, " +
+                    "${result.unixSocketNames.size} named Unix sockets, " +
+                    "complete=${result.complete} in ${result.durationMs}ms"
+            )
+            NetworkApiResponse(200, LanJson.objectOf(*result.asJsonFields()))
+        } finally {
+            hardwareLease.close()
         }
     }
 

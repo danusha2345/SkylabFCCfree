@@ -82,6 +82,34 @@ Aircraft identity is split into `aircraft_model_code` (for example `WA530`) and
 `aircraft_serial` (full factory S/N or the best serial form observed). Cached
 display values never bypass the fresh identity requirement for a 4G send.
 
+## Localhost socket inventory
+
+`local_socket_inventory` performs a one-shot inventory of controller-local
+network endpoints that cannot be seen by an external Wi-Fi port scan:
+
+```bash
+curl -sS -X POST \
+  -H "X-FreeFCC-Password: $FREEFCC_PASSWORD" \
+  --data 'command=local_socket_inventory' \
+  "$FREEFCC_URL/api/command"
+```
+
+The command reads the proc tables available to the app and makes one bounded
+zero-payload connect pass over `127.0.0.1:1..65535`. It writes no application
+bytes, has a 15 ms per-connect timeout and a 20 second total deadline. It is
+manual only, does not run in the background, holds the app hardware-operation
+gate, and returns `409 auto_fcc_running` while Auto FCC is active.
+
+The synchronous JSON response contains `open_tcp_ports`,
+`proc_tcp_listeners`, `proc_udp_sockets`, `unix_socket_names`,
+`readable_proc_sources`, `errors`, `scanned_ports`, `scan_complete`,
+`duration_ms`, and the explicit evidence field `probe_payload_bytes=0`.
+Android may restrict individual `/proc/net/*` files; a denied source appears in
+`errors` and does not invalidate the connect-scan results. A result with
+`scan_complete=false` is a bounded partial inventory, not proof that later
+ports are closed. See [RC2 port and stream map](RC2_PORT_AND_STREAM_MAP.md) for
+the live external scan and the `8902` framing evidence.
+
 ## Raw DUML
 
 `duml_request` builds one DUML request, sends it to the exact selected localhost
