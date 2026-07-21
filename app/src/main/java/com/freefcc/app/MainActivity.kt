@@ -431,8 +431,7 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
 
 @Composable
 private fun GpsControlPanel(state: AppState, viewModel: FccViewModel, modifier: Modifier = Modifier) {
-    val controlsEnabled = state.isConnected &&
-        !state.isGpsBusy && !state.isLedBusy && !state.isHardwareBusy
+    val controlsEnabled = !state.isGpsBusy && !state.isLedBusy && !state.isHardwareBusy
     AircraftControlPanel(
         title = "Aircraft GPS",
         icon = Icons.Default.GpsFixed,
@@ -445,7 +444,7 @@ private fun GpsControlPanel(state: AppState, viewModel: FccViewModel, modifier: 
         },
         status = state.gpsStatus,
         busy = state.isGpsBusy,
-        refreshDescription = "Read GPS state",
+        refreshDescription = "Refresh GPS state",
         onRefresh = { viewModel.refreshGpsState() },
         refreshEnabled = controlsEnabled,
         modifier = modifier
@@ -461,8 +460,7 @@ private fun GpsControlPanel(state: AppState, viewModel: FccViewModel, modifier: 
 
 @Composable
 private fun LedControlPanel(state: AppState, viewModel: FccViewModel, modifier: Modifier = Modifier) {
-    val controlsEnabled = state.isConnected &&
-        !state.isLedBusy && !state.isGpsBusy && !state.isHardwareBusy
+    val controlsEnabled = !state.isLedBusy && !state.isGpsBusy && !state.isHardwareBusy
     AircraftControlPanel(
         title = "Aircraft LEDs",
         icon = Icons.Default.Lightbulb,
@@ -475,7 +473,7 @@ private fun LedControlPanel(state: AppState, viewModel: FccViewModel, modifier: 
         },
         status = state.ledStatus,
         busy = state.isLedBusy,
-        refreshDescription = "Read LED state",
+        refreshDescription = "Refresh LED state",
         onRefresh = { viewModel.refreshLedState() },
         refreshEnabled = controlsEnabled,
         modifier = modifier
@@ -521,26 +519,6 @@ private fun AircraftControlPanel(
                     maxLines = 1,
                     modifier = Modifier.weight(1f)
                 )
-                IconButton(
-                    onClick = onRefresh,
-                    enabled = refreshEnabled,
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    if (busy) {
-                        CircularProgressIndicator(
-                            modifier = Modifier.size(15.dp),
-                            strokeWidth = 2.dp,
-                            color = Cyan
-                        )
-                    } else {
-                        Icon(
-                            Icons.Default.Refresh,
-                            refreshDescription,
-                            tint = Cyan,
-                            modifier = Modifier.size(17.dp)
-                        )
-                    }
-                }
             }
             Text(
                 "State: $stateText",
@@ -557,6 +535,32 @@ private fun AircraftControlPanel(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.heightIn(min = 28.dp)
             )
+            Spacer(Modifier.height(6.dp))
+            OutlinedButton(
+                onClick = onRefresh,
+                enabled = refreshEnabled,
+                contentPadding = PaddingValues(horizontal = 6.dp),
+                shape = RoundedCornerShape(9.dp),
+                border = BorderStroke(1.dp, Cyan.copy(if (refreshEnabled) 0.6f else 0.2f)),
+                modifier = Modifier.fillMaxWidth().height(34.dp)
+            ) {
+                if (busy) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(14.dp),
+                        strokeWidth = 2.dp,
+                        color = Cyan
+                    )
+                } else {
+                    Icon(
+                        Icons.Default.Refresh,
+                        refreshDescription,
+                        tint = Cyan,
+                        modifier = Modifier.size(15.dp)
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Text("REFRESH", color = Cyan, fontSize = 10.5.sp, fontWeight = FontWeight.Bold)
+                }
+            }
             Spacer(Modifier.height(6.dp))
             Row(
                 modifier = Modifier.fillMaxWidth(),

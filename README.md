@@ -157,7 +157,7 @@ full FCC apply.
 4. For 4G diagnostics, tap **Probe 4G Endpoint** first. This is read-only and only checks whether `/duss/mb/0x205` is reachable. **Send 4G Activation Frames** remains experimental and confirms writes only, not activation.
    > **Note:** The integrated eSIM path on DJI Avata 360 is not yet proven compatible with the captured external-module profile. Please attach the LAN logs to an [issue](https://github.com/danusha2345/FreeFCC/issues) when testing.
 5. To request CE restore, tap **Send CE Restore**. The app confirms transport writes only; verify the actual RF mode in DJI Fly.
-6. The aircraft-control card is split evenly: GPS on the left and LED on the right. Each side has its own one-shot refresh and explicit ON/OFF buttons. GPS readback is confirmed on RC2; GPS writes remain experimental and must be verified in DJI Fly. Neither side polls port `40007` in the background.
+6. The aircraft-control card is split evenly: GPS on the left and LED on the right. Each side has its own one-shot refresh and explicit ON/OFF buttons, available without starting Auto FCC first. GPS readback is confirmed on RC2; GPS writes remain experimental and must be verified in DJI Fly. Neither side polls port `40007` in the background.
 7. The **Info** tab lets you query the controller's hardware and firmware version
 8. The **Log** tab starts the LAN diagnostic API by default. It uses unencrypted HTTP and a fixed shared password. A UDP beacon broadcasts only the controller IP and port across the current Wi-Fi subnet; it does not include the password, logs, or command payloads. Disable the bridge on untrusted Wi-Fi. See [LAN Control API](docs/LAN_CONTROL_API.md).
 
