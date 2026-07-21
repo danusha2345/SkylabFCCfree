@@ -362,6 +362,7 @@ Rizin и GNU ARM64 objdump.
 | Artifact | Внешняя версия | Внутренний Android build | SHA-256 |
 |---|---:|---:|---|
 | OpenFCC `firmware_update.zip` | отдельная full A/B OTA | `V55.31.01.39/139` | `182e459ba29fc00aec9c66d547cd3fe4fd14bfa47d7063e486af7b82ba3542f6` |
+| `V01.00.0400_rc520_dji_system.bin` | `01.00.0400` | `V55.35.00.05/5` | `830bb932336cfd93a53c16b8d67c6d4de20d4ce456c8251193c661a84ace7afe` |
 | `V01.00.0500_rc520_dji_system.bin` | `01.00.0500` | `V55.31.04.40/440` | `f0690fecb67a0262e8b9fe28f96a3c87c1be5cce4d6bde2c2fd8ea367b57cbc1` |
 | `V01.00.0600_rc520_dji_system.bin` | `01.00.0600` | `V55.31.05.76/576` | `1c0a57bf53663833250a94ddf88d1ebff1efe57582ed70a98b4f9f047f22bf5b` |
 | `V01.00.0700_rc520_dji_system.bin` | `01.00.0700` | `V55.31.05.76/576` | `c9319db7973777046764789c416f7ff6290de0fd73f40718852855d223fdd1e6` |
@@ -418,17 +419,47 @@ OTA. Точный UI source можно окончательно подтверд
 `getprop ro.build.id`, `getprop ro.build.version.incremental` и экран firmware
 version в DJI Fly.
 
+`0400` не является промежуточным build без регионального барьера. В её
+`/system/etc/lte_cfg.json` уже задано `dongle_display_control=true`, а
+`dji_lte` уже содержит `DONGLE_INFO_TAG_DONGLE_DISPLAY_CONTROL_INFO`, поле
+`need_display` и обработчик `set_liblte_auth_info()`. Внутренняя OTA имеет
+`post-build=DJI/rc520/rc520:11/V55.35.00.05/5:user/release-keys`, собрана
+2025-09-08 и подписана тем же DJI OTA certificate, что builds `139`, `440` и
+`576`. Таким образом, в доступном ряду последний подтверждённый build без
+этого механизма — OpenFCC `139`; уже в официальной `0400` механизм присутствует.
+
+### Почему нельзя тем же способом прошить изменённую свежую OTA
+
+Прямой вызов `update_engine_client` обходит внешний DJI bundle/version layer,
+но не отключает криптографическую проверку внутренней Android A/B OTA. Любое
+изменение `dji_lte`, `lte_cfg.json` или образа `system` меняет одновременно:
+
+- hash соответствующего раздела в payload manifest;
+- `FILE_HASH` полного `payload.bin`;
+- metadata и full-payload RSA signatures;
+- для изменения готового partition image также AVB descriptors/hash tree.
+
+В firmware присутствует только публичный DJI OTA certificate. Закрытого ключа,
+необходимого для пересчёта signatures, в проверенном corpus нет. Опубликованные
+`PRAK-*` в `dji-firmware-tools` также являются публичными ключами проверки
+внешнего IMAH-контейнера; приватные community `SLAK-*` не являются доверенным
+DJI OTA-ключом. Поэтому launcher может установить старую неизменённую и
+правильно подписанную OTA, но не может штатно установить самостоятельно
+изменённую свежую OTA. Для такого варианта сначала потребовался бы отдельный
+доказанный bypass `update_engine`/AVB либо доверенный приватный ключ DJI.
+
 ### Доказанный auth gate
 
-В `V55.31.04.40` в `lte_cfg.json` появляется:
+Уже в официальной `01.00.0400` (`V55.35.00.05`) в `lte_cfg.json` задано:
 
 ```json
 "dongle_display_control": true
 ```
 
-В `V55.31.01.39` ключ и обслуживающий его код отсутствуют. В `V55.31.05.76`
-ключ сохраняется. Функция `set_liblte_auth_info()` начиная не позднее build
-`440` содержит дополнительное условие отказа:
+В `V55.31.01.39` ключ и обслуживающий его код отсутствуют. В builds
+`V55.31.04.40` и `V55.31.05.76` ключ сохраняется. Ghidra независимо показала
+в `V55.35.00.05` и `V55.31.04.40` одно и то же дополнительное условие отказа
+в `set_liblte_auth_info()`:
 
 ```c
 dongle_display_control != 0 && lte_get_country_region() == 1
@@ -441,7 +472,7 @@ dongle_display_control != 0 && lte_get_country_region() == 1
 остаются остальные причины отказа, включая пустой country code, LTE blacklist,
 отсутствие peer dongle и неготовый SIM state.
 
-Параллельно в build `440` появляется TLV tag `9`, строка
+Параллельно уже в `V55.35.00.05` присутствуют TLV tag `9`, строка
 `DONGLE_INFO_TAG_DONGLE_DISPLAY_CONTROL_INFO` и поле `need_display`:
 
 - parser начинает принимать dongle subtag `0..9`, тогда как build `139`
@@ -456,7 +487,7 @@ dongle_display_control != 0 && lte_get_country_region() == 1
 | Claim | Level | Artifact/location | Evidence | Confidence |
 |---|---|---|---|---|
 | OpenFCC устанавливает старый полный controller build `139` | OBSERVED | OTA metadata и payload manifest | full A/B OTA, 29 partitions, DJI certificate | High |
-| Region gate появился между builds `139` и `440` | OBSERVED | `dji_lte:set_liblte_auth_info` | ветка отсутствует в `139`, присутствует в `440` и `576` | High |
+| Region gate появился после build `139`, но не позднее официальной `0400` | OBSERVED | `dji_lte:set_liblte_auth_info` | ветка отсутствует в `139`, присутствует в `V55.35.00.05`, `440` и `576` | High |
 | Gate блокирует auth вне `CN` | DERIVED | `set_liblte_auth_info` + `lte_get_country_region` | `true && region==1` ведёт к error path до `liblte_set_param(AUTH_PARAM)` | High |
 | Новая прошивка сообщает app поле `need_display` | OBSERVED | dongle TLV parser/constructor, event `0x1850` | новый tag `9`, length `1`, parser range `0..9` | High |
 | Одного изменения JSON на `false` достаточно для штатной работы 4G | HYPOTHESIS | read-only `/system/etc/lte_cfg.json` | auth gate выключится, но остаются pairing, SIM, peer dongle и certificate checks | Medium |
@@ -465,10 +496,11 @@ dongle_display_control != 0 && lte_get_country_region() == 1
 является этим барьером. Его проверенные call sites подавляют отправку части
 диагностических сообщений в blackbox; LTE initialization оно не запрещает.
 
-Для точного определения первого затронутого релиза нужен ещё один официальный
-`rc520_0205` build между `139` и `440`. Для проверки bypass без полной замены
-OTA наиболее информативен контролируемый runtime-тест с тем же build `576`, но
-с `dongle_display_control=false`; он требует отдельного безопасного способа
+Для точного определения первого затронутого релиза нужен официальный
+`rc520_0205` build старше `01.00.0400`, но новее датированного 2025-03-18 build
+`139`. Для проверки bypass без полной замены OTA наиболее информативен
+контролируемый runtime-тест с тем же build `576`, но с
+`dongle_display_control=false`; он требует отдельного безопасного способа
 подмены read-only config/verified system и здесь не выполнялся.
 
 ## Граница с FreeFCC и OpenFCC
