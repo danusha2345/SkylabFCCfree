@@ -122,9 +122,10 @@ contains the current u8 mask when verified. A validated factory-style response i
 `payload_hex=00a259ceedXX`: status `00`, echoed hash, then the current u8 value.
 Common captured values are `00` (off), `ef` (default/on), or a partial bitmask
 such as `04`/`05`. Treat `504` only as “no response on this transport path,” not
-as an LED state. The app performs one read on demand or after a write; it does
-not poll `40007`, because repeated proxy connections disrupted the aircraft link
-in live testing.
+as an LED state. A manual read or post-write verification performs at most two
+bounded attempts and stops after the first validated reply. It does not poll
+`40007` in the background, because repeated proxy connections disrupted the
+aircraft link in live testing.
 
 `duml_send` uses the same fields and also accepts `wrapper=true` for the outer
 port-`40007` envelope. It reports only socket write completion. Generic wrapped
@@ -135,9 +136,10 @@ reply must be retained without interpretation.
 ### GPS read and experimental writes
 
 The GPS actions use the model-independent little-endian hash `82 95 42 c5`
-(`0xC5429582`) for `g_config.gps_cfg.gps_enable`. `gps_read` sends one wrapped
-read-only `03:F8`; `gps_on` and `gps_off` send one `03:F9` write and then one
-readback attempt. They never poll the proxy:
+(`0xC5429582`) for `g_config.gps_cfg.gps_enable`. `gps_read` sends at most two
+wrapped read-only `03:F8` attempts and stops after the first validated reply;
+`gps_on` and `gps_off` send one `03:F9` write and use the same bounded verify.
+They never poll the proxy in the background:
 
 ```bash
 curl -sS -X POST \

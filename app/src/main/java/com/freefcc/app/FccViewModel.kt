@@ -943,15 +943,22 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     private fun readGpsState(gpsTransport: DumlTransport): GpsReadback? {
-        val request = GpsControlProtocol.buildReadRequest()
-        val exchange = gpsTransport.sendAndReceiveRaw(
-            frame = request,
-            wireFrame = Profiles.wrapFrame(request),
-            readWindowMs = 2_500,
-            port = DumlTransport.PORT_LED,
-            autoDetectPort = false
-        )
-        return GpsControlProtocol.parse(exchange.validatedPayload)
+        repeat(2) { attempt ->
+            val request = GpsControlProtocol.buildReadRequest()
+            val exchange = gpsTransport.sendAndReceiveRaw(
+                frame = request,
+                wireFrame = Profiles.wrapFrame(request),
+                readWindowMs = 2_500,
+                port = DumlTransport.PORT_LED,
+                autoDetectPort = false
+            )
+            GpsControlProtocol.parse(exchange.validatedPayload)?.let { return it }
+            if (attempt == 0) {
+                log("GPS readback missing; retrying once")
+                Thread.sleep(150)
+            }
+        }
+        return null
     }
 
     private fun applyGpsReadback(readback: GpsReadback?, unavailableMessage: String) {
@@ -1091,7 +1098,10 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     return@runOnIO
                 }
                 wireAttempted = true
-                applyLedReadback(readLedState(DumlTransport()), "LED state unavailable")
+                applyLedReadback(
+                    readLedState(DumlTransport(), attempts = 2),
+                    "LED state unavailable"
+                )
             } catch (e: CancellationException) {
                 throw e
             } catch (e: Exception) {
@@ -1113,16 +1123,26 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         return true
     }
 
-    private fun readLedState(ledTransport: DumlTransport): LedReadback? {
-        val request = LedReadbackProtocol.buildRequest()
-        val exchange = ledTransport.sendAndReceiveRaw(
-            frame = request,
-            wireFrame = Profiles.wrapFrame(request),
-            readWindowMs = 2_500,
-            port = DumlTransport.PORT_LED,
-            autoDetectPort = false
-        )
-        return LedReadbackProtocol.parse(exchange.validatedPayload)
+    private fun readLedState(
+        ledTransport: DumlTransport,
+        attempts: Int = 1
+    ): LedReadback? {
+        repeat(attempts) { attempt ->
+            val request = LedReadbackProtocol.buildRequest()
+            val exchange = ledTransport.sendAndReceiveRaw(
+                frame = request,
+                wireFrame = Profiles.wrapFrame(request),
+                readWindowMs = 2_500,
+                port = DumlTransport.PORT_LED,
+                autoDetectPort = false
+            )
+            LedReadbackProtocol.parse(exchange.validatedPayload)?.let { return it }
+            if (attempt < attempts - 1) {
+                log("LED readback missing; retrying once")
+                Thread.sleep(150)
+            }
+        }
+        return null
     }
 
     private fun applyLedReadback(readback: LedReadback?, unavailableMessage: String) {
@@ -1225,7 +1245,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 } else {
                     log(if (on) "LED ON command written; reading state" else "LED OFF command written; reading state")
                 }
-                val readback = readLedState(ledTransport)
+                val readback = readLedState(ledTransport, attempts = 2)
                 applyLedReadback(
                     readback,
                     if (allWritesSucceeded) {
