@@ -19,6 +19,7 @@
 | eSIM-устройство с двумя Quectel/QDC535EA functions | OBSERVED | Одинаковые firmware/USB identity, разные встроенные UICC/eUICC-профили, обе functions были без packet attach в РФ |
 | Оба модема внутри RC Pro 2 `rc520` | OBSERVED | `dji_lte` автоматически различает dual/QDC535EA и Fibocom `dji_mini`, создаёт разные UART workers и сохраняет общий DJI LTE service path |
 | RC Pro 2 + Fibocom/Yota без модема в aircraft | OBSERVED + PHYSICAL REPORT | Наземная SIM зарегистрирована в LTE, но WLM остаётся `lte_conn=0`; это ожидаемый half-link, а не доказательство отказа модема пульта |
+| Air 3S + Fibocom/Yota без модема в RC Pro 2 | OBSERVED + PHYSICAL REPORT | Пульт получил `peer dongle insert 0 -> 1`, затем remote `sig_bar_lte` менялся `0 -> 3`; end-to-end WLM остался `lte_conn=0`, потому что наземный endpoint отсутствовал |
 | OpenFCC desktop launcher | OBSERVED | Отдельный controller OTA flow; не является AT-активацией USB-модема |
 
 ## Live-интеграция на RC Pro 2
@@ -86,6 +87,77 @@ HYPOTHESIS: Android bearer может блокироваться vendor RIL poli
 `dji_lte`. Capture доказывает `DISCONNECTED` и отсутствие Cellular
 `NetworkAgent`, но не точную внутреннюю ветку vendor RIL.
 
+### Обратный half-link: Fibocom/Yota только в Air 3S
+
+В отдельном пассивном окне `23:48:38–23:51:38` тот же Fibocom/Yota был физически
+вынут из RC Pro 2 и установлен в Air 3S. На пульте локальная SIM перешла в
+`ABSENT`, исчезли `usb0` и modem-local route; SDR-связь с aircraft сохранилась.
+
+| Время MSK | Уровень | Событие |
+|---|---|---|
+| `23:49:45.848` | OBSERVED | `dji_wlm` на пульте сообщил `peer dongle insert status changed:0 -> 1` |
+| `23:49:58.704` | OBSERVED | Remote поле `sig_bar_lte` впервые изменилось с `0` на `3`; далее в окне оно обновлялось между `0` и `3` |
+| Всё окно после attach | OBSERVED | `lk_state_sdr=1`, но `lk_state_lte=0`, `lte_conn_state=0`, `lte_usable=0`, `use_lte=0` |
+| `23:56:06.010` | OBSERVED | WLM ability negotiation завершилась с `lte_enable=1`, `lte_comm=1`, `lte_spec=1`, `lte_dynamic=1` |
+| Финальный Android snapshot | OBSERVED | На пульте local telephony остался `OUT_OF_SERVICE`, signal unknown, `mDataConnectionState=0`; это ожидаемо, поскольку USB-модема в пульте уже не было |
+| DJI Fly UI после attach | OBSERVED | Переключатель `flight_osd_lte_switch` disabled; warning: «Улучшенная передача данных недоступна на этом дроне в текущем регионе» |
+
+DERIVED: aircraft-side USB attach и его LTE signal bars доставляются на RC Pro 2
+через SDR/WLM независимо от Android telephony пульта. Это подтверждает штатное
+распознавание модема самим Air 3S и peer-state telemetry. Полную LTE pair этот
+сценарий проверить не может: один физический модем был переставлен между
+сторонами, а не установлен одновременно с наземным модемом.
+
+NEGATIVE: в течение примерно `112 s` после `peer dongle insert` не возникли
+`lk_state_lte=1`, `lte_conn_state=1` или `lte_usable=1`. Это ожидаемый обратный
+half-link, а не свидетельство отказа aircraft-модема или SIM.
+
+Дополнительный UI snapshot подтвердил отдельный policy/capability gate:
+
+- `flight_osd_lte_warning_tv`: «Улучшенная передача данных недоступна на этом
+  дроне в текущем регионе»;
+- APK resource: `fpv_basic_flight_topbar_panel_lte_and_sdr_unavailable_`
+  `dongle_not_support_tips` (`0x7f1308cf`);
+- `flight_osd_lte_switch`: `enabled=false`, `checked=false`;
+- Air network и base station одновременно показаны как «Нет доступа»;
+- controller properties: `persist.rc.country=RU`,
+  `gsm.operator.iso-country=ru`, locale `ru-RU`.
+
+OBSERVED: запрет отображает DJI Fly, несмотря на уже подтверждённые aircraft
+dongle attach, ненулевые remote LTE signal bars и успешную WLM negotiation с
+`lte_enable=1`. В ресурсах APK сетевой сбой, отсутствие SIM, необходимость
+upgrade, отсутствие RC dongle, подписка и aircraft/region support представлены
+отдельными ветками. DERIVED: наличие совместимого USB-модема и сотового сигнала
+недостаточно для доступа к Enhanced Transmission; поверх hardware/radio state
+применяется отдельная проверка aircraft/region. Capture ещё не доказывает,
+вычисляется ли запрет локально из capability/country или приходит из DJI
+account/backend policy.
+
+Статический анализ защищённого DJI Fly 1.21.4 уточнил status chain:
+
+- `KeyLTEMutualReason` ->
+  `uav/sdk/keyvalue/value/flightcontroller/LTEMutualReason`;
+- mapper `getFlyValue(LTEMutualReason)` возвращает `WlmLiveInvalidReason`;
+- `GroundAirlink.GroundWLM.GroundWLMLiveService` публикует
+  `startWlmLiveInvalidReason`;
+- `SettingLinkModeLteViewModel` потребляет этот state через
+  `getCanEnableLteObservable` и `getLteFeatureObservable`;
+- в native SDK присутствуют `liblte_get_worker_region`,
+  `lte_check_country_code` и `bool_country_in_lte_black_list`;
+- cloud-control модель содержит `LTE_NOT_SUPPORT_COUNTRY_LIST`,
+  `LTE_BIND_SUPPORT_COUNTRY_LIST`, `lte_feature_not_support_country_code` и
+  `lte_bind_server_support_country_code`.
+
+OBSERVED: SDK имеет отдельный invalid-reason state и отдельные cloud country
+lists. DERIVED: выбранная UI-ветка, вероятнее всего, является результатом
+aircraft/worker region и DJI country policy, а не Android SIM country. Из-за
+AppGuard точный bytecode switch `WlmLiveInvalidReason -> resource` пока не
+восстановлен; влияние account country на эту конкретную ветку не доказано.
+
+Следующий полный тест требует двух одновременных модемов **и** снятого
+aircraft/region gate. Без выполнения обоих условий pairing и реальный Enhanced
+Transmission data path не появятся.
+
 ### Штатный LTE service path RC Pro 2
 
 Публичная `/system/etc/lte_cfg.json` и runtime согласуются между собой:
@@ -129,6 +201,9 @@ Raw corpus хранится только в ignored directory
 | Post-swap `dji_wlm` log | `70bb3b3066d19cba2d765f478adbe4b3840e9298c4880c14f798abe2530b1cbc` |
 | Final stable telephony snapshot | `059affcddcc4e3d95166591a163547d9cc9225fe51a1282653663a59c5a42286` |
 | Final stable DJI LTE/WLM tail | `d9e84e068aa427893d7f1501fa2a70bb6c9da486ba0bdea7cadc94c69a005fb0` |
+| Aircraft-only attach logcat | `670b86349bdac3c94eca86f83c76587aad91a434f1b059edb6a868a229e65366` |
+| Aircraft-only final telephony snapshot | `435e8ae08ba81f53863166b7abbebc04fdc07509a0a0a08e76967bcbc7065e06` |
+| DJI Fly aircraft/region warning UI | `9cc26804cba0f1ae6cf8cd27dabff11a57d3f1f98d48cc9e9caaf4adc36f8296` |
 
 ## Fibocom NL668T-GL с физической Yota SIM
 
