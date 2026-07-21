@@ -247,6 +247,25 @@ Read-only hash request: `03:F8`, payload `a259ceed`. Hash model-independent:
 ошибке и читает LED один раз после connection и после каждого write. Hardware
 validation этой реализации ещё не выполнена.
 
+## GPS master switch live probe
+
+RC2 `rc331` + Avata 360/O4, одиночные wrapped-запросы на `40007`:
+
+- `03:F7`, hash LE `82 95 42 c5`, вернул metadata `gps_enable`: `u8`, size 1,
+  attribute 3, min `0`, max `1`, default `1`;
+- `03:F8` вернул `00 829542c5 01`, то есть текущий GPS был включён;
+- одиночные `03:F9 ... 00` при DJI Fly и при FreeFCC в foreground дали только
+  socket-write evidence; пользователь не увидел отключения GPS, а matching
+  post-write response не пришёл;
+- серия диагностических reconnect на `40007` один раз совпала с потерей GNSS
+  module/link и потребовала aircraft restart, поэтому polling и полный E1 scan
+  остаются запрещены.
+
+Итог: hash и readback доказаны, hash-write пока experimental. UI и LAN API
+делают не больше одной записи и одного verify-read, не объявляют физическое
+состояние по одному факту flush и требуют проверки в DJI Fly. RC Pro 2 должен
+сначала пройти отдельный read-only port probe (`40007` против `8901..8904`).
+
 ## Corpus и privacy
 
 Raw JSON, summaries и analyzer находятся только в ignored `.scratch/`:

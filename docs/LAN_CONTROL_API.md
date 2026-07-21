@@ -61,7 +61,7 @@ result. A successful LAN `connect` starts the default DJI Fly Home Point text
 wait; the Accessibility service must already be enabled. Explicit wait
 start/stop actions and the legacy `keepalive_start/stop` aliases select the same
 default text mode. The five-second legacy mode is currently a local UI action.
-The list also includes FCC/CE, LED,
+The list also includes FCC/CE, GPS, LED,
 device info, serial and 4G probes, updater actions, and flight-app launch. Busy
 hardware returns `409`; commands that require a prior controller connection or
 update check return `412`.
@@ -131,6 +131,27 @@ port-`40007` envelope. It reports only socket write completion. Generic wrapped
 response parsing remains intentionally unavailable through `duml_request`; use
 `led_read` for the supported lamp readback or `wire_exchange` when the raw outer
 reply must be retained without interpretation.
+
+### GPS read and experimental writes
+
+The GPS actions use the model-independent little-endian hash `82 95 42 c5`
+(`0xC5429582`) for `g_config.gps_cfg.gps_enable`. `gps_read` sends one wrapped
+read-only `03:F8`; `gps_on` and `gps_off` send one `03:F9` write and then one
+readback attempt. They never poll the proxy:
+
+```bash
+curl -sS -X POST \
+  -H "X-FreeFCC-Password: $FREEFCC_PASSWORD" \
+  --data 'command=gps_read' \
+  "$FREEFCC_URL/api/command"
+```
+
+`/api/status` exposes `gps_busy`, `gps_state`, `gps_value`, and `gps_status`.
+The RC2 live bench confirmed metadata and readback (`gps_enable=1`), but did
+not yet prove that an `03:F9` write persists. Treat `gps_on`/`gps_off` as
+experimental and verify the GNSS state in DJI Fly; socket-write completion is
+not physical-state evidence. RC Pro 2 may use `40007` or an `8901..8904` proxy
+and requires a separate read-only port check before GPS writes are tested.
 
 Allowed ports are `40007`, `40009`, and `8901..8904`. Payload length is limited
 to the DUML frame maximum. The API never exposes shell commands, filesystem

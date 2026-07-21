@@ -47,6 +47,10 @@ data class AppState(
     val ledState: LedState = LedState.UNKNOWN,
     val ledRawValue: Int? = null,
     val ledStatus: String = "",
+    val isGpsBusy: Boolean = false,
+    val gpsState: GpsState = GpsState.UNKNOWN,
+    val gpsRawValue: Int? = null,
+    val gpsStatus: String = "",
     val logMessages: List<String> = emptyList(),
     // Update state
     val updateInfo: UpdateInfo? = null,
@@ -103,6 +107,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         private val processLogs = ArrayDeque<String>()
         private val lanDiagnosticBusy = AtomicBoolean(false)
         private val ledOperationBusy = AtomicBoolean(false)
+        private val gpsOperationBusy = AtomicBoolean(false)
         @Volatile private var activeLanController: FccViewModel? = null
         private val networkLogServer = NetworkLogServer(
             logSnapshot = {
@@ -133,6 +138,9 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             "led_read",
             "led_on",
             "led_off",
+            "gps_read",
+            "gps_on",
+            "gps_off",
             "device_info",
             "serial_probe",
             "four_g_probe",
@@ -310,7 +318,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 }
             )
         }
-        log("FreeFCC v$APP_VERSION started on $model")
+        log("SkylabFCCfree v$APP_VERSION started on $model")
 
         if (prefs.getBoolean("lan_log_enabled", true)) {
             setLanLoggingEnabled(true)
@@ -886,6 +894,170 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+    // --- GPS ---
+
+    /** Reads the aircraft master `gps_enable` parameter without changing it. */
+    fun refreshGpsState(): Boolean {
+        if (!gpsOperationBusy.compareAndSet(false, true)) {
+            log("GPS busy — please wait.")
+            return false
+        }
+        update {
+            copy(
+                isGpsBusy = true,
+                gpsState = GpsState.UNKNOWN,
+                gpsRawValue = null,
+                gpsStatus = "Reading GPS state..."
+            )
+        }
+        log("Reading GPS state...")
+
+        runOnIO {
+            var portLease: Port40007Lock.Lease? = null
+            try {
+                portLease = Port40007Lock.acquireForLed()
+                if (portLease == null) {
+                    update { copy(gpsStatus = "GPS port busy") }
+                    log("GPS read failed to acquire port 40007")
+                    return@runOnIO
+                }
+                applyGpsReadback(readGpsState(DumlTransport()), "GPS state unavailable")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log("GPS read error: ${e.message}")
+                update {
+                    copy(
+                        gpsState = GpsState.UNKNOWN,
+                        gpsRawValue = null,
+                        gpsStatus = "State unavailable"
+                    )
+                }
+            } finally {
+                portLease?.let(Port40007Lock::releaseFromLed)
+                gpsOperationBusy.set(false)
+                update { copy(isGpsBusy = false) }
+            }
+        }
+        return true
+    }
+
+    private fun readGpsState(gpsTransport: DumlTransport): GpsReadback? {
+        val request = GpsControlProtocol.buildReadRequest()
+        val exchange = gpsTransport.sendAndReceiveRaw(
+            frame = request,
+            wireFrame = Profiles.wrapFrame(request),
+            readWindowMs = 2_500,
+            port = DumlTransport.PORT_LED,
+            autoDetectPort = false
+        )
+        return GpsControlProtocol.parse(exchange.validatedPayload)
+    }
+
+    private fun applyGpsReadback(readback: GpsReadback?, unavailableMessage: String) {
+        if (readback == null) {
+            update {
+                copy(
+                    gpsState = GpsState.UNKNOWN,
+                    gpsRawValue = null,
+                    gpsStatus = unavailableMessage
+                )
+            }
+            log("GPS state readback unavailable")
+            return
+        }
+
+        val label = when (readback.state) {
+            GpsState.ON -> "ON"
+            GpsState.OFF -> "OFF"
+            GpsState.UNEXPECTED -> "UNEXPECTED (0x%02X)".format(Locale.US, readback.rawValue)
+            GpsState.UNKNOWN -> "UNKNOWN"
+        }
+        update {
+            copy(
+                gpsState = readback.state,
+                gpsRawValue = readback.rawValue,
+                gpsStatus = "Verified $label"
+            )
+        }
+        log("GPS state read back: $label")
+    }
+
+    /** Writes an explicit master GPS state once, then verifies it with `03:F8`. */
+    fun setGps(enabled: Boolean): Boolean {
+        if (!gpsOperationBusy.compareAndSet(false, true)) {
+            log("GPS busy — please wait.")
+            return false
+        }
+        val requestedLabel = if (enabled) "ON" else "OFF"
+        update {
+            copy(
+                isGpsBusy = true,
+                gpsState = GpsState.UNKNOWN,
+                gpsRawValue = null,
+                gpsStatus = "Turning GPS ${requestedLabel.lowercase(Locale.US)}..."
+            )
+        }
+        log("Turning GPS ${requestedLabel.lowercase(Locale.US)}...")
+
+        runOnIO {
+            var portLease: Port40007Lock.Lease? = null
+            try {
+                portLease = Port40007Lock.acquireForLed()
+                if (portLease == null) {
+                    update { copy(gpsStatus = "GPS port busy") }
+                    log("GPS command failed to acquire port 40007")
+                    return@runOnIO
+                }
+
+                val request = GpsControlProtocol.buildWriteRequest(enabled)
+                val writeSucceeded = DumlTransport().sendFrame(
+                    frame = Profiles.wrapFrame(request),
+                    readWindowMs = 150,
+                    port = DumlTransport.PORT_LED
+                )
+                delay(200)
+
+                val readback = readGpsState(DumlTransport())
+                applyGpsReadback(
+                    readback,
+                    if (writeSucceeded) "$requestedLabel command sent; state unknown"
+                    else "GPS command transport failed"
+                )
+
+                val expectedState = if (enabled) GpsState.ON else GpsState.OFF
+                when {
+                    !writeSucceeded -> {
+                        log("GPS $requestedLabel command transport failed")
+                        update { copy(gpsStatus = "GPS command transport failed") }
+                    }
+                    readback != null && readback.state != expectedState -> {
+                        log("GPS verification mismatch: requested $requestedLabel, read ${readback.state}")
+                        update {
+                            copy(gpsStatus = "Mismatch: requested $requestedLabel, read ${readback.state.name}")
+                        }
+                    }
+                }
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                log("GPS error: ${e.message}")
+                update {
+                    copy(
+                        gpsState = GpsState.UNKNOWN,
+                        gpsRawValue = null,
+                        gpsStatus = "Error: ${e.message}"
+                    )
+                }
+            } finally {
+                portLease?.let(Port40007Lock::releaseFromLed)
+                gpsOperationBusy.set(false)
+                update { copy(isGpsBusy = false) }
+            }
+        }
+        return true
+    }
+
     // --- LED ---
 
     /** Reads the current aircraft lamp parameter without changing it. */
@@ -1241,7 +1413,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     fun ensureInstallPermission(): Boolean {
         val pm = app.packageManager
         if (!pm.canRequestPackageInstalls()) {
-            log("Install permission needed — opening Settings. Grant 'Install unknown apps' for FreeFCC, then tap Download again.")
+            log("Install permission needed — opening Settings. Grant 'Install unknown apps' for SkylabFCCfree, then tap Download again.")
             val settingsIntent = android.content.Intent(
                 android.provider.Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES
             ).apply {
@@ -1315,7 +1487,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 // per-app. The RC2 may hide this Settings page — if so, the
                 // user needs to install via SD card + FileManager instead.
                 if (!pm.canRequestPackageInstalls()) {
-                    log("Install blocked — FreeFCC needs 'Install unknown apps' permission.")
+                    log("Install blocked — SkylabFCCfree needs 'Install unknown apps' permission.")
                     log("Opening Settings to grant it. If the Settings page doesn't appear,")
                     log("install the update via SD card + FileManager instead.")
                     val settingsIntent = android.content.Intent(
@@ -1447,6 +1619,10 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             "led_state" to current.ledState.name.lowercase(Locale.US),
             "led_value" to current.ledRawValue,
             "led_status" to current.ledStatus,
+            "gps_busy" to current.isGpsBusy,
+            "gps_state" to current.gpsState.name.lowercase(Locale.US),
+            "gps_value" to current.gpsRawValue,
+            "gps_status" to current.gpsStatus,
             "aircraft_serial" to current.aircraftSerial,
             "device_info" to current.deviceInfo,
             "four_g_message" to current.fourGMessage,
@@ -1509,6 +1685,9 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 "led_read" -> acceptedBoolean(command, refreshLedState(), "led_busy")
                 "led_on" -> acceptedBoolean(command, setLed(true), "led_busy")
                 "led_off" -> acceptedBoolean(command, setLed(false), "led_busy")
+                "gps_read" -> acceptedBoolean(command, refreshGpsState(), "gps_busy")
+                "gps_on" -> acceptedBoolean(command, setGps(true), "gps_busy")
+                "gps_off" -> acceptedBoolean(command, setGps(false), "gps_busy")
                 "device_info" -> acceptedHardware(command, requireConnected = true) { queryDeviceInfo() }
                 "serial_probe" -> acceptedHardware(command, requireConnected = true) { probeSerial() }
                 "four_g_probe" -> accepted(command) { probe4gEndpoint() }

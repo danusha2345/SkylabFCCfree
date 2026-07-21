@@ -76,7 +76,7 @@ class FccKeepaliveService : Service() {
         @Synchronized
         fun start(context: Context, mode: AutoFccMode = AutoFccMode.HOME_POINT_TEXT): Boolean {
             check(mode != AutoFccMode.HOME_POINT_TEXT || isDjiFlyTextAccessEnabled(context)) {
-                "Enable FreeFCC Home Point Test in Accessibility settings first"
+                "Enable SkylabFCCfree Home Point Test in Accessibility settings first"
             }
             val preferences = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             val hadPersistentRequest = preferences.getBoolean(PREF_KEEPALIVE, false)
@@ -598,7 +598,7 @@ class FccKeepaliveService : Service() {
             android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
         )
         return builder
-            .setContentTitle("FreeFCC")
+            .setContentTitle("SkylabFCCfree")
             .setContentText(
                 if (mode == AutoFccMode.HOME_POINT_TEXT) {
                     "Waiting for DJI Fly Home Point text..."

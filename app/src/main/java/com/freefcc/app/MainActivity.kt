@@ -203,7 +203,7 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
         } else {
             Toast.makeText(
                 context,
-                "Enable FreeFCC Home Point Test to use text-based Auto FCC",
+                "Enable SkylabFCCfree Home Point Test to use text-based Auto FCC",
                 Toast.LENGTH_LONG
             ).show()
         }
@@ -214,7 +214,7 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
         } else {
             Toast.makeText(
                 context,
-                "Enable FreeFCC Home Point Test, then return to FreeFCC",
+                "Enable SkylabFCCfree Home Point Test, then return to SkylabFCCfree",
                 Toast.LENGTH_LONG
             ).show()
             try {
@@ -412,88 +412,184 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
             }
         }
 
-        // LED control card
+        // Aircraft GPS and LED controls share port 40007 and are serialized.
         Spacer(Modifier.height(SectionSpacing))
         GlowCard {
             Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(IntrinsicSize.Min),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Text("Aircraft LEDs", color = TextWhite, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
-                    Spacer(Modifier.height(4.dp))
-                    Text(
-                        "State: ${state.ledState.name}",
-                        color = when (state.ledState) {
-                            LedState.ON -> Green
-                            LedState.OFF -> TextGray
-                            LedState.PARTIAL -> Amber
-                            LedState.UNKNOWN -> TextDim
-                        },
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    if (state.ledStatus.isNotEmpty()) {
-                        Spacer(Modifier.height(3.dp))
-                        Text(
-                            state.ledStatus,
-                            color = TextGray,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    }
-                }
+                GpsControlPanel(state, viewModel, Modifier.weight(1f).fillMaxHeight())
+                LedControlPanel(state, viewModel, Modifier.weight(1f).fillMaxHeight())
+            }
+        }
+
+    }
+}
+
+@Composable
+private fun GpsControlPanel(state: AppState, viewModel: FccViewModel, modifier: Modifier = Modifier) {
+    val controlsEnabled = state.isConnected &&
+        !state.isGpsBusy && !state.isLedBusy && !state.isHardwareBusy
+    AircraftControlPanel(
+        title = "Aircraft GPS",
+        icon = Icons.Default.GpsFixed,
+        stateText = state.gpsState.name,
+        stateColor = when (state.gpsState) {
+            GpsState.ON -> Green
+            GpsState.OFF -> Red
+            GpsState.UNEXPECTED -> Amber
+            GpsState.UNKNOWN -> TextDim
+        },
+        status = state.gpsStatus,
+        busy = state.isGpsBusy,
+        refreshDescription = "Read GPS state",
+        onRefresh = { viewModel.refreshGpsState() },
+        refreshEnabled = controlsEnabled,
+        modifier = modifier
+    ) {
+        CompactControlButton("GPS ON", Green, filled = true, enabled = controlsEnabled) {
+            viewModel.setGps(true)
+        }
+        CompactControlButton("GPS OFF", Red, filled = false, enabled = controlsEnabled) {
+            viewModel.setGps(false)
+        }
+    }
+}
+
+@Composable
+private fun LedControlPanel(state: AppState, viewModel: FccViewModel, modifier: Modifier = Modifier) {
+    val controlsEnabled = state.isConnected &&
+        !state.isLedBusy && !state.isGpsBusy && !state.isHardwareBusy
+    AircraftControlPanel(
+        title = "Aircraft LEDs",
+        icon = Icons.Default.Lightbulb,
+        stateText = state.ledState.name,
+        stateColor = when (state.ledState) {
+            LedState.ON -> Green
+            LedState.OFF -> TextGray
+            LedState.PARTIAL -> Amber
+            LedState.UNKNOWN -> TextDim
+        },
+        status = state.ledStatus,
+        busy = state.isLedBusy,
+        refreshDescription = "Read LED state",
+        onRefresh = { viewModel.refreshLedState() },
+        refreshEnabled = controlsEnabled,
+        modifier = modifier
+    ) {
+        CompactControlButton("LED ON", Green, filled = true, enabled = controlsEnabled) {
+            viewModel.setLed(true)
+        }
+        CompactControlButton("LED OFF", TextGray, filled = false, enabled = controlsEnabled) {
+            viewModel.setLed(false)
+        }
+    }
+}
+
+@Composable
+private fun AircraftControlPanel(
+    title: String,
+    icon: androidx.compose.ui.graphics.vector.ImageVector,
+    stateText: String,
+    stateColor: Color,
+    status: String,
+    busy: Boolean,
+    refreshDescription: String,
+    onRefresh: () -> Unit,
+    refreshEnabled: Boolean,
+    modifier: Modifier = Modifier,
+    actions: @Composable RowScope.() -> Unit
+) {
+    Surface(
+        color = BgLight.copy(alpha = 0.72f),
+        shape = RoundedCornerShape(12.dp),
+        border = BorderStroke(1.dp, CardBorder),
+        modifier = modifier
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(icon, null, tint = Cyan, modifier = Modifier.size(17.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(
+                    title,
+                    color = TextWhite,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    modifier = Modifier.weight(1f)
+                )
                 IconButton(
-                    onClick = { viewModel.refreshLedState() },
-                    enabled = state.isConnected && !state.isLedBusy && !state.isHardwareBusy,
-                    modifier = Modifier.size(36.dp)
+                    onClick = onRefresh,
+                    enabled = refreshEnabled,
+                    modifier = Modifier.size(28.dp)
                 ) {
-                    if (state.isLedBusy) {
+                    if (busy) {
                         CircularProgressIndicator(
-                            modifier = Modifier.size(18.dp),
+                            modifier = Modifier.size(15.dp),
                             strokeWidth = 2.dp,
                             color = Cyan
                         )
                     } else {
-                        Icon(Icons.Default.Refresh, "Read LED state", tint = Cyan)
+                        Icon(
+                            Icons.Default.Refresh,
+                            refreshDescription,
+                            tint = Cyan,
+                            modifier = Modifier.size(17.dp)
+                        )
                     }
                 }
             }
-            Spacer(Modifier.height(8.dp))
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(
-                    onClick = { viewModel.setLed(true) },
-                    enabled = state.isConnected && !state.isLedBusy && !state.isHardwareBusy,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Green,
-                        contentColor = BgDark,
-                        disabledContainerColor = Green.copy(0.2f),
-                        disabledContentColor = Green.copy(0.4f)
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.dp, Green.copy(0.3f)),
-                    modifier = Modifier.weight(1f).height(44.dp)
-                ) {
-                    Text("LED ON", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                }
-                Button(
-                    onClick = { viewModel.setLed(false) },
-                    enabled = state.isConnected && !state.isLedBusy && !state.isHardwareBusy,
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = Color.Transparent,
-                        contentColor = TextGray,
-                        disabledContainerColor = TextGray.copy(0.1f),
-                        disabledContentColor = TextGray.copy(0.3f)
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    border = BorderStroke(1.5.dp, TextGray.copy(0.5f)),
-                    modifier = Modifier.weight(1f).height(44.dp)
-                ) {
-                    Text("LED OFF", fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                }
-            }
+            Text(
+                "State: $stateText",
+                color = stateColor,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                status.ifEmpty { "Tap refresh to check" },
+                color = TextGray,
+                fontSize = 10.5.sp,
+                lineHeight = 13.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.heightIn(min = 28.dp)
+            )
+            Spacer(Modifier.height(6.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                content = actions
+            )
         }
+    }
+}
 
+@Composable
+private fun RowScope.CompactControlButton(
+    text: String,
+    color: Color,
+    filled: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit
+) {
+    Button(
+        onClick = onClick,
+        enabled = enabled,
+        colors = ButtonDefaults.buttonColors(
+            containerColor = if (filled) color else Color.Transparent,
+            contentColor = if (filled) BgDark else color,
+            disabledContainerColor = color.copy(0.14f),
+            disabledContentColor = color.copy(0.35f)
+        ),
+        contentPadding = PaddingValues(horizontal = 3.dp),
+        shape = RoundedCornerShape(9.dp),
+        border = BorderStroke(1.dp, color.copy(if (enabled) 0.55f else 0.2f)),
+        modifier = Modifier.weight(1f).height(36.dp)
+    ) {
+        Text(text, fontWeight = FontWeight.Bold, fontSize = 11.sp, maxLines = 1)
     }
 }
 // ═══════════════════════════════════════════════════════════════════════
@@ -893,7 +989,7 @@ private fun FccHeader(state: AppState) {
         verticalAlignment = Alignment.CenterVertically
     ) {
         Text(
-            "FreeFCC",
+            "SkylabFCCfree",
             color = Cyan,
             fontSize = 22.sp,
             fontWeight = FontWeight.Black,

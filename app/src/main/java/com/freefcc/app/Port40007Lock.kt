@@ -5,7 +5,7 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
 
-/** Prevents concurrent LED and Home Point sessions on the shared 40007 proxy. */
+/** Prevents concurrent GPS, LED, diagnostics and Home Point sessions on port 40007. */
 internal object Port40007Lock {
     private val held = AtomicBoolean(false)
     private val externalRequestCount = AtomicInteger(0)

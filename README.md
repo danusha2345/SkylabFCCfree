@@ -1,6 +1,6 @@
 <div align="center">
 
-# FreeFCC
+# SkylabFCCfree
 
 ### Open-source FCC unlock for DJI smart controllers with a screen
 
@@ -32,6 +32,7 @@ A free and open-source Android app that unlocks FCC mode, sends experimental 4G 
 |---------|-------------|
 | **FCC Unlock** | Switches the radio from CE to FCC mode for higher power and more channels |
 | **4G Activation** | Sends 4G activation frames to the aircraft (serial read at runtime) — no status readback, experimental |
+| **GPS Control** | Reads the master `gps_enable` state and provides experimental explicit ON/OFF commands with one-shot readback |
 | **LED Control** | Reads the current lamp state and verifies it after LED on/off commands (DJI Fly and a linked aircraft are required) |
 | **Device Info** | Attempts to query hardware and firmware version; response availability depends on the controller/proxy path |
 | **Auto FCC** | Offers one-shot DJI Fly Home Point text detection or the original four-frame keepalive every five seconds |
@@ -47,7 +48,7 @@ A free and open-source Android app that unlocks FCC mode, sends experimental 4G 
 
 | Download | Link |
 |----------|------|
-| FreeFCC App (APK) | [GitHub Releases](https://github.com/danusha2345/FreeFCC/releases) |
+| SkylabFCCfree App (APK) | [GitHub Releases](https://github.com/danusha2345/FreeFCC/releases) |
 | Helper Apps (zip) | [freefcc.duckdns.org/downloads/freefcc-helpers.zip](https://freefcc.duckdns.org/downloads/freefcc-helpers.zip) |
 
 Release changes are tracked in [CHANGELOG.md](CHANGELOG.md).
@@ -84,10 +85,10 @@ Validated upstream on DJI RC2 firmware v10.00.0700; this fork was additionally e
 and waits for its localized Home Point text through Android Accessibility. It
 does not open a DUML socket while waiting. After an exact phrase match it sends
 the complete 21-frame × 2-round FCC profile once on the port pinned by Connect,
-then stops. Enable **FreeFCC Home Point Test** once in Android Accessibility
+then stops. Enable **SkylabFCCfree Home Point Test** once in Android Accessibility
 settings. On the first run the **Auto FCC — Home Point** button opens the
 required Android settings automatically; after the service is enabled and you
-return to FreeFCC, the text-based mode starts without a second tap.
+return to SkylabFCCfree, the text-based mode starts without a second tap.
 
 **Auto FCC — every 5 sec** is the explicit legacy alternative. It sends the
 complete profile once, then sends the original upstream four-frame
@@ -106,7 +107,7 @@ The original flow was tested on Mini 5 Pro with RC2 firmware v10.00.0700. No PC 
 
 **Format the microSD card in the RC2 first.** Insert the card into the controller, then go to the RC2's storage settings and format it. If you skip this, the RC2 won't let you browse files on the card.
 
-Download the helper apps zip and the FreeFCC APK. Extract the zip, drop the APK into the extracted folder, then move the whole thing onto the microSD card. Stick the card into your RC2.
+Download the helper apps zip and the SkylabFCCfree APK. Extract the zip, drop the APK into the extracted folder, then move the whole thing onto the microSD card. Stick the card into your RC2.
 
 > The RC2 won't install apps from internal storage, only from the SD card. The card must be formatted in the controller itself before it can be browsed.
 
@@ -135,15 +136,15 @@ Install `04_Edge Gestures` and this time tap OPEN. Follow the prompts and grant 
 
 Now swiping right-to-left on the screen opens the launcher.
 
-### 6. Install FreeFCC
+### 6. Install SkylabFCCfree
 
 Swipe from the right edge to open ATV Launcher. Open the Files app, find your folder, tap `FREEFCC.apk`, and install it.
 
 ## How to Use
 
 On the first **Auto FCC — Home Point** run, the button opens Android
-Accessibility settings automatically. Enable **FreeFCC Home Point Test** and
-return to FreeFCC; the pending text-based mode starts automatically. The
+Accessibility settings automatically. Enable **SkylabFCCfree Home Point Test** and
+return to SkylabFCCfree; the pending text-based mode starts automatically. The
 service reads only accessibility events and visible text from `dji.go.v5`, and
 loads Home Point phrases from every locale present in the installed DJI Fly.
 Reading the screen does not open DUML; an armed Home Point match triggers one
@@ -156,7 +157,7 @@ full FCC apply.
 4. For 4G diagnostics, tap **Probe 4G Endpoint** first. This is read-only and only checks whether `/duss/mb/0x205` is reachable. **Send 4G Activation Frames** remains experimental and confirms writes only, not activation.
    > **Note:** The integrated eSIM path on DJI Avata 360 is not yet proven compatible with the captured external-module profile. Please attach the LAN logs to an [issue](https://github.com/danusha2345/FreeFCC/issues) when testing.
 5. To request CE restore, tap **Send CE Restore**. The app confirms transport writes only; verify the actual RF mode in DJI Fly.
-6. The LED card reads state once after **Auto FCC**, verifies it again after **LED ON** or **LED OFF**, and supports an on-demand refresh.
+6. The aircraft-control card is split evenly: GPS on the left and LED on the right. Each side has its own one-shot refresh and explicit ON/OFF buttons. GPS readback is confirmed on RC2; GPS writes remain experimental and must be verified in DJI Fly. Neither side polls port `40007` in the background.
 7. The **Info** tab lets you query the controller's hardware and firmware version
 8. The **Log** tab starts the LAN diagnostic API by default. It uses unencrypted HTTP and a fixed shared password. A UDP beacon broadcasts only the controller IP and port across the current Wi-Fi subnet; it does not include the password, logs, or command payloads. Disable the bridge on untrusted Wi-Fi. See [LAN Control API](docs/LAN_CONTROL_API.md).
 
@@ -186,7 +187,7 @@ Open the DJI Fly app and go to the Transmission tab. Look at the horizontal bar 
 
 ## Support
 
-If FreeFCC helped you out, please consider starring the repo or supporting development on Boosty.
+If SkylabFCCfree helped you out, please consider starring the repo or supporting development on Boosty.
 
 <div align="center">
 
@@ -204,13 +205,15 @@ Every contribution helps keep development and hardware testing going. Thank you.
 
 For FCC, CE, and request/response diagnostics, the app sends DUML commands to localhost TCP proxies. RC2 normally uses `127.0.0.1:40009`; discovery also checks `40007` and `8901..8904` for other controller paths. DUML is DJI's internal command protocol, publicly documented in the [dji-firmware-tools](https://github.com/o-gs/dji-firmware-tools) project.
 
-Each command is a small binary packet with a magic byte (`0x55`), routing fields, a payload, and two CRC checksums. Ordinary TCP commands use one packet per connection. LED commands use an outer wrapper on port `40007`; 4G uses one abstract Unix datagram socket for the complete frame burst.
+Each command is a small binary packet with a magic byte (`0x55`), routing fields, a payload, and two CRC checksums. Ordinary TCP commands use one packet per connection. GPS and LED commands use an outer wrapper on port `40007`; 4G uses one abstract Unix datagram socket for the complete frame burst.
 
 The LED card keeps physical state separate from write completion. Connect, its refresh action, and every LED write perform one wrapped read-only `03:F8` hash request and display `ON`, `OFF`, `PARTIAL`, or `UNKNOWN`. A missing or mismatched response never preserves the requested value as if it were verified. See [LAN Control API](docs/LAN_CONTROL_API.md#read-the-current-lamp-parameter-by-hash).
 
+GPS uses the model-independent hash `0xC5429582` for `g_config.gps_cfg.gps_enable`. A wrapped `03:F7` live probe on RC2 confirmed a one-byte `0..1` parameter with default `1`, and `03:F8` returned the current value. `03:F9` ON/OFF writes are intentionally labelled experimental: socket-write completion is not proof that DJI Fly or the flight controller retained the requested state.
+
 ### FCC Profile
 
-21 frames sent in 2 rounds with 30ms between frames and 100ms between rounds. The sequence enters service mode, sets the radio region to FCC, writes channel groups and power limits, commits the change, and exits service mode. The same 21 frames work on every DJI aircraft model tested (Mini 5 Pro, Mini 4 Pro, Mavic 4 Pro, Air 3S, Neo, Avata 360). All requested writes must now complete before the UI reports that the sequence was sent. The proxy cannot confirm the resulting RF region, so verify the Transmission graph in DJI Fly. Pressing Back moves FreeFCC to the background instead of destroying its Activity; Android process death still requires a new **Auto FCC** Connect.
+21 frames sent in 2 rounds with 30ms between frames and 100ms between rounds. The sequence enters service mode, sets the radio region to FCC, writes channel groups and power limits, commits the change, and exits service mode. The same 21 frames work on every DJI aircraft model tested (Mini 5 Pro, Mini 4 Pro, Mavic 4 Pro, Air 3S, Neo, Avata 360). All requested writes must now complete before the UI reports that the sequence was sent. The proxy cannot confirm the resulting RF region, so verify the Transmission graph in DJI Fly. Pressing Back moves SkylabFCCfree to the background instead of destroying its Activity; Android process death still requires a new **Auto FCC** Connect.
 
 The CE/default-region action is experimental. It writes the existing single-frame `ce_restore.json` profile, stops keepalive first, and reports only that the command was sent. Its effect must also be verified in DJI Fly.
 
