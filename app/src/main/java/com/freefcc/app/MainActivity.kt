@@ -1,11 +1,15 @@
 package com.freefcc.app
 
+import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.viewModels
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
@@ -61,7 +65,7 @@ private val TextWhite = Color(0xFFF5F7FA)
 private val TextGray = Color(0xFFA5AFBA)
 private val TextDim = Color(0xFF687581)
 
-private val BottomNavHeight = 60.dp
+private val BottomNavHeight = 34.dp
 private val PageHorizontalPadding = 16.dp
 private val PageTopPadding = 8.dp
 private val PageBottomPadding = 12.dp
@@ -181,6 +185,49 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
     val updateInfo = state.updateInfo
     val fccPresentation = fccUiPresentation(state.isFccEnabled)
     val context = LocalContext.current
+    val startHomePointAuto = {
+        if (!state.isConnected || state.isFccEnabled) {
+            viewModel.connect(
+                launchFlightAppAfterConnect = true,
+                autoMode = AutoFccMode.HOME_POINT_TEXT
+            )
+        } else {
+            viewModel.startKeepalive(AutoFccMode.HOME_POINT_TEXT)
+        }
+    }
+    val accessibilitySettingsLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.StartActivityForResult()
+    ) {
+        if (FccKeepaliveService.isDjiFlyTextAccessEnabled(context)) {
+            startHomePointAuto()
+        } else {
+            Toast.makeText(
+                context,
+                "Enable FreeFCC Home Point Test to use text-based Auto FCC",
+                Toast.LENGTH_LONG
+            ).show()
+        }
+    }
+    val requestHomePointAuto = {
+        if (FccKeepaliveService.isDjiFlyTextAccessEnabled(context)) {
+            startHomePointAuto()
+        } else {
+            Toast.makeText(
+                context,
+                "Enable FreeFCC Home Point Test, then return to FreeFCC",
+                Toast.LENGTH_LONG
+            ).show()
+            try {
+                accessibilitySettingsLauncher.launch(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            } catch (_: ActivityNotFoundException) {
+                Toast.makeText(
+                    context,
+                    "Accessibility settings are unavailable on this controller",
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
+    }
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -239,10 +286,7 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                         Spacer(Modifier.height(8.dp))
                     }
                     GlowButton("Auto FCC — Home Point", Cyan, enabled = !state.isHardwareBusy) {
-                        viewModel.connect(
-                            launchFlightAppAfterConnect = true,
-                            autoMode = AutoFccMode.HOME_POINT_TEXT
-                        )
+                        requestHomePointAuto()
                     }
                     Spacer(Modifier.height(8.dp))
                     GlowButton("Auto FCC — every 5 sec", Amber, filled = false, enabled = !state.isHardwareBusy) {
@@ -267,10 +311,7 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                     BodyText("FCC request was written. RF mode is unknown; verify in DJI Fly.", Amber)
                     Spacer(Modifier.height(8.dp))
                     GlowButton("Auto FCC — Home Point", Cyan, enabled = !state.isHardwareBusy) {
-                        viewModel.connect(
-                            launchFlightAppAfterConnect = true,
-                            autoMode = AutoFccMode.HOME_POINT_TEXT
-                        )
+                        requestHomePointAuto()
                     }
                     Spacer(Modifier.height(8.dp))
                     GlowButton("Auto FCC — every 5 sec", Amber, filled = false, enabled = !state.isHardwareBusy) {
@@ -297,7 +338,7 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                         Spacer(Modifier.height(8.dp))
                     }
                     GlowButton("Auto FCC — Home Point", Cyan, enabled = !state.isHardwareBusy) {
-                        viewModel.startKeepalive(AutoFccMode.HOME_POINT_TEXT)
+                        requestHomePointAuto()
                     }
                     Spacer(Modifier.height(8.dp))
                     GlowButton("Auto FCC — every 5 sec", Amber, filled = false, enabled = !state.isHardwareBusy) {
@@ -311,40 +352,6 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
             if (state.isConnected) {
                 Spacer(Modifier.height(8.dp))
                 SerialRow(state.aircraftSerial, enabled = !state.isHardwareBusy) { viewModel.probeSerial() }
-            }
-        }
-
-        Spacer(Modifier.height(SectionSpacing))
-
-        GlowCard {
-            Text(
-                "DJI Fly Home Point access",
-                color = TextWhite,
-                fontSize = 16.sp,
-                fontWeight = FontWeight.SemiBold
-            )
-            Spacer(Modifier.height(4.dp))
-            Text(
-                "Enable FreeFCC Home Point Test once. Auto FCC — Home Point then waits for " +
-                    "the localized Home Point text in the original DJI Fly and sends one full FCC profile. " +
-                    "Accessibility itself does not open DUML connections.",
-                color = TextGray,
-                fontSize = 12.sp,
-                lineHeight = 17.sp
-            )
-            Spacer(Modifier.height(8.dp))
-            OutlinedButton(
-                onClick = {
-                    context.startActivity(
-                        Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-                    )
-                },
-                modifier = Modifier.fillMaxWidth(),
-                colors = ButtonDefaults.outlinedButtonColors(contentColor = Amber)
-            ) {
-                Icon(Icons.Default.Visibility, null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Open Accessibility Settings")
             }
         }
 
@@ -1209,52 +1216,76 @@ private fun BottomNavBar(
 
     Surface(
         color = BgDark.copy(0.98f),
-        shadowElevation = 8.dp,
+        shadowElevation = 10.dp,
         modifier = modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(BottomNavHeight)
-                .padding(horizontal = 10.dp),
-            horizontalArrangement = Arrangement.SpaceEvenly,
+                .padding(horizontal = 5.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             tabs.forEachIndexed { index, (label, icon, color) ->
                 val selected = currentPage == index
+                val buttonColor by animateColorAsState(
+                    targetValue = if (selected) color.copy(alpha = 0.18f) else BgLight.copy(alpha = 0.82f),
+                    animationSpec = tween(180),
+                    label = "bottomNavButtonColor"
+                )
+                val borderColor by animateColorAsState(
+                    targetValue = if (selected) color.copy(alpha = 0.9f) else CardBorder.copy(alpha = 0.85f),
+                    animationSpec = tween(180),
+                    label = "bottomNavBorderColor"
+                )
+                val contentColor by animateColorAsState(
+                    targetValue = if (selected) color else TextGray,
+                    animationSpec = tween(180),
+                    label = "bottomNavContentColor"
+                )
 
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                Box(
                     modifier = Modifier
                         .weight(1f)
+                        .fillMaxHeight()
                         .selectable(
                             selected = selected,
                             onClick = { onPageSelected(index) },
                             role = Role.Tab
                         )
-                        .padding(vertical = 4.dp)
+                        .padding(horizontal = 1.dp, vertical = 3.dp)
                 ) {
-                    Icon(
-                        icon, label,
-                        tint = if (selected) color else TextDim,
-                        modifier = Modifier.size(21.dp)
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Text(
-                        label,
-                        color = if (selected) color else TextDim,
-                        fontSize = 10.sp,
-                        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-                        maxLines = 1
-                    )
-                    Spacer(Modifier.height(2.dp))
-                    Box(
-                        modifier = Modifier
-                            .width(24.dp)
-                            .height(2.dp)
-                            .clip(RoundedCornerShape(2.dp))
-                            .background(if (selected) color else Color.Transparent)
-                    )
+                    Surface(
+                        color = buttonColor,
+                        contentColor = contentColor,
+                        shape = RoundedCornerShape(8.dp),
+                        border = BorderStroke(if (selected) 1.2.dp else 1.dp, borderColor),
+                        modifier = Modifier.fillMaxSize()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .padding(horizontal = 5.dp),
+                            horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                icon,
+                                contentDescription = label,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(Modifier.width(4.dp))
+                            Text(
+                                label,
+                                fontSize = 9.5.sp,
+                                lineHeight = 10.sp,
+                                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis
+                            )
+                        }
+                    }
                 }
             }
         }

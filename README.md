@@ -85,7 +85,9 @@ and waits for its localized Home Point text through Android Accessibility. It
 does not open a DUML socket while waiting. After an exact phrase match it sends
 the complete 21-frame × 2-round FCC profile once on the port pinned by Connect,
 then stops. Enable **FreeFCC Home Point Test** once in Android Accessibility
-settings before using this mode.
+settings. On the first run the **Auto FCC — Home Point** button opens the
+required Android settings automatically; after the service is enabled and you
+return to FreeFCC, the text-based mode starts without a second tap.
 
 **Auto FCC — every 5 sec** is the explicit legacy alternative. It sends the
 complete profile once, then sends the original upstream four-frame
@@ -139,11 +141,13 @@ Swipe from the right edge to open ATV Launcher. Open the Files app, find your fo
 
 ## How to Use
 
-Before the first **Auto FCC — Home Point** run, tap **Open Accessibility
-Settings** and enable **FreeFCC Home Point Test**. The service reads only
-accessibility events and visible text from `dji.go.v5`, and loads Home Point
-phrases from every locale present in the installed DJI Fly. Reading the screen
-does not open DUML; an armed Home Point match triggers one full FCC apply.
+On the first **Auto FCC — Home Point** run, the button opens Android
+Accessibility settings automatically. Enable **FreeFCC Home Point Test** and
+return to FreeFCC; the pending text-based mode starts automatically. The
+service reads only accessibility events and visible text from `dji.go.v5`, and
+loads Home Point phrases from every locale present in the installed DJI Fly.
+Reading the screen does not open DUML; an armed Home Point match triggers one
+full FCC apply.
 
 1. Power on the drone and link it to the controller
 2. Choose **Auto FCC — Home Point**, **Auto FCC — every 5 sec**, or the one-shot **Send FCC Request**.
