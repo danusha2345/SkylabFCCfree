@@ -240,6 +240,12 @@ identity.
 
 The `/duss/mb/0x205` pre-check proves only local route availability. It does not distinguish an external Cellular Dongle from an integrated eSIM module and does not validate model-specific payload semantics.
 
+Live USB/AT evidence for the tested Fibocom physical-SIM modem and the dual-
+function Quectel/eSIM unit is kept separately in
+[DJI cellular modem live map](docs/DJI_CELLULAR_MODEM_LIVE_MAP.md). The working
+Fibocom ECM/RNDIS sequence configures the modem bearer only; it does not replace
+the aircraft/controller 4G activation flow above.
+
 ### Profile Format
 
 Profiles are JSON files in `app/src/main/assets/profiles/`. Each frame looks like this:
