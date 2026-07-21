@@ -122,8 +122,9 @@ contains the current u8 mask when verified. A validated factory-style response i
 `payload_hex=00a259ceedXX`: status `00`, echoed hash, then the current u8 value.
 Common captured values are `00` (off), `ef` (default/on), or a partial bitmask
 such as `04`/`05`. Treat `504` only as “no response on this transport path,” not
-as an LED state. A manual read or post-write verification performs at most two
-bounded attempts and stops after the first validated reply. It does not poll
+as an LED state. A manual read performs at most three bounded attempts. LED
+ON/OFF performs at most two full command cycles, each followed by one readback,
+and stops after the first matching reply. It does not poll
 `40007` in the background, because repeated proxy connections disrupted the
 aircraft link in live testing.
 
@@ -136,9 +137,10 @@ reply must be retained without interpretation.
 ### GPS read and experimental writes
 
 The GPS actions use the model-independent little-endian hash `82 95 42 c5`
-(`0xC5429582`) for `g_config.gps_cfg.gps_enable`. `gps_read` sends at most two
-wrapped read-only `03:F8` attempts and stops after the first validated reply;
-`gps_on` and `gps_off` send one `03:F9` write and use the same bounded verify.
+(`0xC5429582`) for `g_config.gps_cfg.gps_enable`. `gps_read` sends at most three
+wrapped read-only `03:F8` attempts and stops after the first validated reply.
+`gps_on` and `gps_off` make at most three bounded `03:F9 write → single 03:F8
+readback` attempts and stop immediately when the requested state is verified.
 They never poll the proxy in the background:
 
 ```bash
@@ -149,11 +151,16 @@ curl -sS -X POST \
 ```
 
 `/api/status` exposes `gps_busy`, `gps_state`, `gps_value`, and `gps_status`.
-The RC2 live bench confirmed metadata and readback (`gps_enable=1`), but did
-not yet prove that an `03:F9` write persists. Treat `gps_on`/`gps_off` as
-experimental and verify the GNSS state in DJI Fly; socket-write completion is
-not physical-state evidence. RC Pro 2 may use `40007` or an `8901..8904` proxy
-and requires a separate read-only port check before GPS writes are tested.
+The latest validated GPS/LED replies persist across process restarts. Restored
+values are labelled `Last verified` with their timestamp; they are historical
+evidence, not a claim that a newly powered aircraft still has the same state.
+The RC2 live bench confirmed metadata, readback, and eventual ON/OFF writes.
+Delivery is intermittent: a second aircraft required three manual sends for OFF
+and two for ON, which is why the app now uses a bounded verified retry. A socket
+write alone is still not physical-state evidence. Live `rc520` mapping found
+traffic on `40007`/`40009`, identity frames on `8901`, and no traffic on
+`8902..8904`; direct read-only GPS requests on `40009` and `8901` returned no
+matching response. GPS/LED therefore remain on the verified wrapped `40007` path.
 
 Allowed ports are `40007`, `40009`, and `8901..8904`. Payload length is limited
 to the DUML frame maximum. The API never exposes shell commands, filesystem

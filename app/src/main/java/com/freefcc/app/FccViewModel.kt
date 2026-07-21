@@ -103,6 +103,12 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         val APP_VERSION: String = BuildConfig.VERSION_NAME
 
         private const val MAX_LOG_ENTRIES = 200
+        private const val PREF_GPS_STATE = "gps_last_verified_state"
+        private const val PREF_GPS_RAW = "gps_last_verified_raw"
+        private const val PREF_GPS_AT = "gps_last_verified_at"
+        private const val PREF_LED_STATE = "led_last_verified_state"
+        private const val PREF_LED_RAW = "led_last_verified_raw"
+        private const val PREF_LED_AT = "led_last_verified_at"
         private val processLogLock = Any()
         private val processLogs = ArrayDeque<String>()
         private val lanDiagnosticBusy = AtomicBoolean(false)
@@ -260,6 +266,81 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         if (cachedSerial.isNotEmpty()) {
             update { copy(aircraftSerial = cachedSerial) }
         }
+        restorePersistedControlReadbacks()
+    }
+
+    private fun restorePersistedControlReadbacks() {
+        val cachedGps = loadPersistedGpsReadback()
+        val cachedLed = loadPersistedLedReadback()
+        if (cachedGps == null && cachedLed == null) return
+
+        update {
+            copy(
+                gpsState = cachedGps?.first?.state ?: gpsState,
+                gpsRawValue = cachedGps?.first?.rawValue ?: gpsRawValue,
+                gpsStatus = cachedGps?.let { persistedStatus("Last verified", gpsLabel(it.first), it.second) }
+                    ?: gpsStatus,
+                ledState = cachedLed?.first?.state ?: ledState,
+                ledRawValue = cachedLed?.first?.rawValue ?: ledRawValue,
+                ledStatus = cachedLed?.let { persistedStatus("Last verified", ledLabel(it.first), it.second) }
+                    ?: ledStatus
+            )
+        }
+    }
+
+    private fun loadPersistedGpsReadback(): Pair<GpsReadback, Long>? {
+        if (!prefs.contains(PREF_GPS_STATE) || !prefs.contains(PREF_GPS_RAW)) return null
+        val state = runCatching {
+            GpsState.valueOf(prefs.getString(PREF_GPS_STATE, null).orEmpty())
+        }.getOrNull() ?: return null
+        return GpsReadback(state, prefs.getInt(PREF_GPS_RAW, 0)) to prefs.getLong(PREF_GPS_AT, 0L)
+    }
+
+    private fun loadPersistedLedReadback(): Pair<LedReadback, Long>? {
+        if (!prefs.contains(PREF_LED_STATE) || !prefs.contains(PREF_LED_RAW)) return null
+        val state = runCatching {
+            LedState.valueOf(prefs.getString(PREF_LED_STATE, null).orEmpty())
+        }.getOrNull() ?: return null
+        return LedReadback(state, prefs.getInt(PREF_LED_RAW, 0)) to prefs.getLong(PREF_LED_AT, 0L)
+    }
+
+    private fun persistGpsReadback(readback: GpsReadback, verifiedAtMs: Long) {
+        prefs.edit()
+            .putString(PREF_GPS_STATE, readback.state.name)
+            .putInt(PREF_GPS_RAW, readback.rawValue)
+            .putLong(PREF_GPS_AT, verifiedAtMs)
+            .apply()
+    }
+
+    private fun persistLedReadback(readback: LedReadback, verifiedAtMs: Long) {
+        prefs.edit()
+            .putString(PREF_LED_STATE, readback.state.name)
+            .putInt(PREF_LED_RAW, readback.rawValue)
+            .putLong(PREF_LED_AT, verifiedAtMs)
+            .apply()
+    }
+
+    private fun persistedStatus(prefix: String, label: String, verifiedAtMs: Long): String {
+        val timestamp = if (verifiedAtMs > 0L) {
+            SimpleDateFormat("dd.MM.yyyy HH:mm:ss", Locale.getDefault()).format(Date(verifiedAtMs))
+        } else {
+            "unknown time"
+        }
+        return "$prefix $label at $timestamp"
+    }
+
+    private fun gpsLabel(readback: GpsReadback): String = when (readback.state) {
+        GpsState.ON -> "ON"
+        GpsState.OFF -> "OFF"
+        GpsState.UNEXPECTED -> "UNEXPECTED (0x%02X)".format(Locale.US, readback.rawValue)
+        GpsState.UNKNOWN -> "UNKNOWN"
+    }
+
+    private fun ledLabel(readback: LedReadback): String = when (readback.state) {
+        LedState.ON -> "ON"
+        LedState.OFF -> "OFF"
+        LedState.PARTIAL -> "PARTIAL (0x%02X)".format(Locale.US, readback.rawValue)
+        LedState.UNKNOWN -> "UNKNOWN"
     }
 
     /** Claims the shared hardware lock for one operation, or null if it is busy. */
@@ -942,8 +1023,11 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         return true
     }
 
-    private fun readGpsState(gpsTransport: DumlTransport): GpsReadback? {
-        repeat(2) { attempt ->
+    private fun readGpsState(
+        gpsTransport: DumlTransport,
+        attempts: Int = 3
+    ): GpsReadback? {
+        repeat(attempts) { attempt ->
             val request = GpsControlProtocol.buildReadRequest()
             val exchange = gpsTransport.sendAndReceiveRaw(
                 frame = request,
@@ -953,8 +1037,8 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 autoDetectPort = false
             )
             GpsControlProtocol.parse(exchange.validatedPayload)?.let { return it }
-            if (attempt == 0) {
-                log("GPS readback missing; retrying once")
+            if (attempt < attempts - 1) {
+                log("GPS readback missing; retrying")
                 Thread.sleep(150)
             }
         }
@@ -963,23 +1047,23 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private fun applyGpsReadback(readback: GpsReadback?, unavailableMessage: String) {
         if (readback == null) {
+            val cached = loadPersistedGpsReadback()
             update {
                 copy(
-                    gpsState = GpsState.UNKNOWN,
-                    gpsRawValue = null,
-                    gpsStatus = unavailableMessage
+                    gpsState = cached?.first?.state ?: GpsState.UNKNOWN,
+                    gpsRawValue = cached?.first?.rawValue,
+                    gpsStatus = cached?.let {
+                        persistedStatus("$unavailableMessage; last verified", gpsLabel(it.first), it.second)
+                    } ?: unavailableMessage
                 )
             }
             log("GPS state readback unavailable")
             return
         }
 
-        val label = when (readback.state) {
-            GpsState.ON -> "ON"
-            GpsState.OFF -> "OFF"
-            GpsState.UNEXPECTED -> "UNEXPECTED (0x%02X)".format(Locale.US, readback.rawValue)
-            GpsState.UNKNOWN -> "UNKNOWN"
-        }
+        val verifiedAtMs = System.currentTimeMillis()
+        val label = gpsLabel(readback)
+        persistGpsReadback(readback, verifiedAtMs)
         update {
             copy(
                 gpsState = readback.state,
@@ -990,7 +1074,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         log("GPS state read back: $label")
     }
 
-    /** Writes an explicit master GPS state once, then verifies it with `03:F8`. */
+    /** Writes an explicit master GPS state up to three times, stopping after verification. */
     fun setGps(enabled: Boolean): Boolean {
         if (!gpsOperationBusy.compareAndSet(false, true)) {
             log("GPS busy — please wait.")
@@ -1017,31 +1101,49 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     return@runOnIO
                 }
 
-                val request = GpsControlProtocol.buildWriteRequest(enabled)
-                val writeSucceeded = DumlTransport().sendFrame(
-                    frame = Profiles.wrapFrame(request),
-                    readWindowMs = 150,
-                    port = DumlTransport.PORT_LED
-                )
-                delay(200)
+                val expectedState = if (enabled) GpsState.ON else GpsState.OFF
+                var anyWriteSucceeded = false
+                var readback: GpsReadback? = null
 
-                val readback = readGpsState(DumlTransport())
+                for (attempt in 1..3) {
+                    update { copy(gpsStatus = "GPS $requestedLabel attempt $attempt/3...") }
+                    log("GPS $requestedLabel attempt $attempt/3")
+
+                    val request = GpsControlProtocol.buildWriteRequest(enabled)
+                    val writeSucceeded = DumlTransport().sendFrame(
+                        frame = Profiles.wrapFrame(request),
+                        readWindowMs = 150,
+                        port = DumlTransport.PORT_LED
+                    )
+                    anyWriteSucceeded = anyWriteSucceeded || writeSucceeded
+                    delay(200)
+
+                    readback = readGpsState(DumlTransport(), attempts = 1)
+                    if (readback?.state == expectedState) {
+                        log("GPS $requestedLabel verified after attempt $attempt/3")
+                        break
+                    }
+                    if (attempt < 3) {
+                        log("GPS $requestedLabel not verified; retrying write")
+                        delay(250)
+                    }
+                }
+
                 applyGpsReadback(
                     readback,
-                    if (writeSucceeded) "$requestedLabel command sent; state unknown"
+                    if (anyWriteSucceeded) "$requestedLabel commands sent; state unknown"
                     else "GPS command transport failed"
                 )
 
-                val expectedState = if (enabled) GpsState.ON else GpsState.OFF
                 when {
-                    !writeSucceeded -> {
+                    !anyWriteSucceeded -> {
                         log("GPS $requestedLabel command transport failed")
                         update { copy(gpsStatus = "GPS command transport failed") }
                     }
                     readback != null && readback.state != expectedState -> {
-                        log("GPS verification mismatch: requested $requestedLabel, read ${readback.state}")
+                        log("GPS verification mismatch after 3 attempts: requested $requestedLabel, read ${readback.state}")
                         update {
-                            copy(gpsStatus = "Mismatch: requested $requestedLabel, read ${readback.state.name}")
+                            copy(gpsStatus = "Mismatch after 3 attempts: requested $requestedLabel, read ${readback.state.name}")
                         }
                     }
                 }
@@ -1099,7 +1201,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 }
                 wireAttempted = true
                 applyLedReadback(
-                    readLedState(DumlTransport(), attempts = 2),
+                    readLedState(DumlTransport()),
                     "LED state unavailable"
                 )
             } catch (e: CancellationException) {
@@ -1125,7 +1227,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private fun readLedState(
         ledTransport: DumlTransport,
-        attempts: Int = 1
+        attempts: Int = 3
     ): LedReadback? {
         repeat(attempts) { attempt ->
             val request = LedReadbackProtocol.buildRequest()
@@ -1138,7 +1240,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             )
             LedReadbackProtocol.parse(exchange.validatedPayload)?.let { return it }
             if (attempt < attempts - 1) {
-                log("LED readback missing; retrying once")
+                log("LED readback missing; retrying")
                 Thread.sleep(150)
             }
         }
@@ -1147,23 +1249,23 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private fun applyLedReadback(readback: LedReadback?, unavailableMessage: String) {
         if (readback == null) {
+            val cached = loadPersistedLedReadback()
             update {
                 copy(
-                    ledState = LedState.UNKNOWN,
-                    ledRawValue = null,
-                    ledStatus = unavailableMessage
+                    ledState = cached?.first?.state ?: LedState.UNKNOWN,
+                    ledRawValue = cached?.first?.rawValue,
+                    ledStatus = cached?.let {
+                        persistedStatus("$unavailableMessage; last verified", ledLabel(it.first), it.second)
+                    } ?: unavailableMessage
                 )
             }
             log("LED state readback unavailable")
             return
         }
 
-        val label = when (readback.state) {
-            LedState.ON -> "ON"
-            LedState.OFF -> "OFF"
-            LedState.PARTIAL -> "PARTIAL (0x%02X)".format(Locale.US, readback.rawValue)
-            LedState.UNKNOWN -> "UNKNOWN"
-        }
+        val verifiedAtMs = System.currentTimeMillis()
+        val label = ledLabel(readback)
+        persistLedReadback(readback, verifiedAtMs)
         update {
             copy(
                 ledState = readback.state,
@@ -1179,9 +1281,8 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
      * Uses port 40007 (different from the standard 40009 DUML port).
      * Requires DJI Fly running with the aircraft connected.
      *
-     * Sends the LED command in 2 bursts of 5 writes each (10 total), with
-     * 100ms between writes — matching the reference app's pattern for
-     * reliability.
+     * Sends the LED command in up to two verified cycles. Each cycle uses
+     * 2 bursts of 5 writes (10 total), matching the reference app's pattern.
      *
      * **Does NOT hold HardwareLock.** LED uses a dedicated process-wide port
      * 40007 lease, so it cannot overlap the one-shot Home Point listener.
@@ -1220,32 +1321,49 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 // must not share state with the FCC transport on port 40009.
                 val ledTransport = DumlTransport()
 
+                val expectedState = if (on) LedState.ON else LedState.OFF
+                val requestedLabel = if (on) "ON" else "OFF"
                 var allWritesSucceeded = true
+                var readback: LedReadback? = null
 
-                // 2 connection bursts × 5 writes each = 10 total sends, with
-                // 100ms between writes and 100ms between bursts. Matches the
-                // reference app's reliability pattern.
-                for (attempt in 0 until 2) {
-                    if (attempt > 0) delay(100)
+                // One manual press may perform two complete reference-pattern
+                // command cycles. Live RC Pro 2 testing needed the second manual
+                // press, so stop as soon as a matching readback confirms state.
+                for (commandAttempt in 1..2) {
+                    update { copy(ledStatus = "LED $requestedLabel attempt $commandAttempt/2...") }
+                    log("LED $requestedLabel attempt $commandAttempt/2")
 
-                    val success = ledTransport.sendFrames(
-                        frames = profile.frames,
-                        rounds = 5,
-                        interFrameDelayMs = 100,
-                        interRoundDelayMs = 0,
-                        readWindowMs = 100,
-                        port = profile.port
-                    )
+                    // 2 connection bursts × 5 writes each = 10 total sends.
+                    for (burst in 0 until 2) {
+                        if (burst > 0) delay(100)
+                        val success = ledTransport.sendFrames(
+                            frames = profile.frames,
+                            rounds = 5,
+                            interFrameDelayMs = 100,
+                            interRoundDelayMs = 0,
+                            readWindowMs = 100,
+                            port = profile.port
+                        )
+                        if (!success) allWritesSucceeded = false
+                    }
 
-                    if (!success) allWritesSucceeded = false
+                    delay(200)
+                    readback = readLedState(ledTransport, attempts = 1)
+                    if (readback?.state == expectedState) {
+                        log("LED $requestedLabel verified after attempt $commandAttempt/2")
+                        break
+                    }
+                    if (commandAttempt < 2) {
+                        log("LED $requestedLabel not verified; retrying command")
+                        delay(250)
+                    }
                 }
 
                 if (!allWritesSucceeded) {
                     log("LED command transport was incomplete; reading actual state anyway")
                 } else {
-                    log(if (on) "LED ON command written; reading state" else "LED OFF command written; reading state")
+                    log("LED $requestedLabel command cycle finished")
                 }
-                val readback = readLedState(ledTransport, attempts = 2)
                 applyLedReadback(
                     readback,
                     if (allWritesSucceeded) {
@@ -1254,9 +1372,12 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         "Command transport incomplete; state unknown"
                     }
                 )
-                val expectedState = if (on) LedState.ON else LedState.OFF
-                if (readback != null && readback.state != expectedState) {
-                    log("LED verification mismatch: requested ${if (on) "ON" else "OFF"}, read ${readback.state}")
+                val finalReadback = readback
+                if (finalReadback != null && finalReadback.state != expectedState) {
+                    log("LED verification mismatch after 2 attempts: requested $requestedLabel, read ${finalReadback.state}")
+                    update {
+                        copy(ledStatus = "Mismatch after 2 attempts: requested $requestedLabel, read ${finalReadback.state.name}")
+                    }
                 }
             } catch (e: Exception) {
                 log("LED error: ${e.message}")
