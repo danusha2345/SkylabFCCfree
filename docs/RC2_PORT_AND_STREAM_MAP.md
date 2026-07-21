@@ -164,6 +164,40 @@ Android AOSP определяет UID `1021` как
 
 Пример запуска приведён в [LAN Control API](LAN_CONTROL_API.md#localhost-socket-inventory).
 
+### Проверка SkylabFCCfree 1.5.41
+
+После установки 1.5.41 повторный snapshot на том же RC2 подтвердил безопасную
+реализацию и устойчивость карты:
+
+| Поле | Результат |
+|---|---|
+| `inventory_method` | `proc_net_passive` |
+| `probe_attempted` | `false` |
+| `scanned_ports` | `0` |
+| `probe_payload_bytes` | `0` |
+| `inventory_complete` | `true` |
+| `errors` | `[]` |
+| `duration_ms` | `143` |
+
+TCP listeners совпали с первым snapshot: `5037`, `5744`, `8787`, `8901`,
+`8902`, `40007`, `40008`, `40009`. Изменился только динамический UDP6-порт
+SkylabFCCfree, что ожидаемо после переустановки/перезапуска процесса.
+
+Структурированные Unix metadata уточнили transport type:
+
+- LTE, LTE liveview и все `@/duss/*` endpoints имеют `type=0002`
+  (`SOCK_DGRAM`);
+- `/dev/socket/dji_fpv` и `fpv_sock*` имеют `type=0001` (`SOCK_STREAM`);
+- `/dev/socket/adbd` имеет `type=0005` (`SOCK_SEQPACKET`).
+
+Для datagram endpoints обычное подключение нового клиента не является
+пассивным перехватом уже существующего обмена: сообщения адресуются владельцу
+конкретного socket. Поэтому следующим безопасным объектом остаётся внешний
+publish stream `8902`, который сам отдаёт данные после TCP connect без запроса.
+К DUSS/LTE sockets нельзя подключать параллельный listener и называть его
+наблюдением чужого трафика без отдельного privileged capture или firmware
+evidence.
+
 ## Матрица следующих captures
 
 Чтобы определить назначение неизвестных потоков без влияния на DJI transport,
