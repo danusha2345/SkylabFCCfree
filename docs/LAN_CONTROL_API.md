@@ -139,11 +139,11 @@ reply must be retained without interpretation.
 The GPS actions use the model-independent little-endian hash `82 95 42 c5`
 (`0xC5429582`) for `g_config.gps_cfg.gps_enable`. `gps_read` sends at most three
 wrapped read-only `03:F8` attempts and stops after the first validated reply.
-`gps_on` and `gps_off` make at most three bounded `03:F9 write → single 03:F8
-readback` attempts and stop immediately when the requested state is verified.
-Each cycle waits 1.5 seconds after the write because live `rc520` evidence
-showed that GNSS applies the parameter asynchronously; retries are separated by
-one additional second.
+`gps_on` and `gps_off` send three bounded idempotent `03:F9` writes 150 ms
+apart, release their port-`40007` lease, and after 250 ms start the same
+standalone `03:F8` Refresh path used by `gps_read`. Live `rc520` evidence showed
+that reads inside the write lease could all fail even when the physical state
+changed, while a separate manual Refresh immediately returned the new value.
 They never poll the proxy in the background:
 
 ```bash
@@ -157,6 +157,9 @@ curl -sS -X POST \
 The latest validated GPS/LED replies persist across process restarts. Restored
 values are labelled `Last verified` with their timestamp; they are historical
 evidence, not a claim that a newly powered aircraft still has the same state.
+If a GPS write completes without a matching readback, the older GPS cache is
+invalidated and `/api/status` reports `gps_state=unknown`: live evidence showed
+that the physical state can change even when `03:F8` returns no reply.
 The RC2 live bench confirmed metadata, readback, and eventual ON/OFF writes.
 Delivery is intermittent: a second aircraft required three manual sends for OFF
 and two for ON, which is why the app now uses a bounded verified retry. A socket

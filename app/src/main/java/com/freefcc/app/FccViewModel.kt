@@ -1093,6 +1093,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
         runOnIO {
             var portLease: Port40007Lock.Lease? = null
+            var followUpRead = false
             try {
                 portLease = Port40007Lock.acquireForLed()
                 if (portLease == null) {
@@ -1101,9 +1102,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     return@runOnIO
                 }
 
-                val expectedState = if (enabled) GpsState.ON else GpsState.OFF
                 var anyWriteSucceeded = false
-                var readback: GpsReadback? = null
 
                 for (attempt in 1..3) {
                     update { copy(gpsStatus = "GPS $requestedLabel attempt $attempt/3...") }
@@ -1116,39 +1115,33 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         port = DumlTransport.PORT_LED
                     )
                     anyWriteSucceeded = anyWriteSucceeded || writeSucceeded
-                    // Live rc520 evidence shows that GNSS applies 03:F9
-                    // asynchronously. Reading after 200 ms observed the old
-                    // value, while a later manual press saw the new state.
-                    delay(1_500)
-
-                    readback = readGpsState(DumlTransport(), attempts = 1)
-                    if (readback?.state == expectedState) {
-                        log("GPS $requestedLabel verified after attempt $attempt/3")
-                        break
-                    }
                     if (attempt < 3) {
-                        log("GPS $requestedLabel not verified; retrying write")
-                        delay(1_000)
+                        log("GPS $requestedLabel write sent; repeating bounded command")
+                        delay(150)
                     }
                 }
 
-                applyGpsReadback(
-                    readback,
-                    if (anyWriteSucceeded) "$requestedLabel commands sent; state unknown"
-                    else "GPS command transport failed"
-                )
-
-                when {
-                    !anyWriteSucceeded -> {
-                        log("GPS $requestedLabel command transport failed")
-                        update { copy(gpsStatus = "GPS command transport failed") }
+                if (!anyWriteSucceeded) {
+                    log("GPS $requestedLabel command transport failed")
+                    update { copy(gpsStatus = "GPS command transport failed") }
+                } else {
+                    // Live rc520 evidence: the command can apply physically,
+                    // while reads in the same port lease never return. Clear
+                    // stale state now and refresh only after releasing 40007.
+                    prefs.edit()
+                        .remove(PREF_GPS_STATE)
+                        .remove(PREF_GPS_RAW)
+                        .remove(PREF_GPS_AT)
+                        .apply()
+                    update {
+                        copy(
+                            gpsState = GpsState.UNKNOWN,
+                            gpsRawValue = null,
+                            gpsStatus = "$requestedLabel commands sent; waiting for fresh status..."
+                        )
                     }
-                    readback != null && readback.state != expectedState -> {
-                        log("GPS verification mismatch after 3 attempts: requested $requestedLabel, read ${readback.state}")
-                        update {
-                            copy(gpsStatus = "Mismatch after 3 attempts: requested $requestedLabel, read ${readback.state.name}")
-                        }
-                    }
+                    followUpRead = true
+                    log("GPS $requestedLabel commands sent; scheduling fresh-port status read")
                 }
             } catch (e: CancellationException) {
                 throw e
@@ -1165,6 +1158,12 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 portLease?.let(Port40007Lock::releaseFromLed)
                 gpsOperationBusy.set(false)
                 update { copy(isGpsBusy = false) }
+            }
+
+            if (followUpRead) {
+                delay(250)
+                log("Starting GPS status refresh on a fresh port 40007 lease")
+                refreshGpsState()
             }
         }
         return true
