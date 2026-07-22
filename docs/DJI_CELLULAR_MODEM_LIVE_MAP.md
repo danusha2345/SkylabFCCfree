@@ -1,6 +1,6 @@
 # Live-карта DJI cellular-модемов
 
-Дата проверки: 2026-07-21.
+Дата проверки: 2026-07-21, дополнено live/firmware-проверками 2026-07-22.
 
 Цель: зафиксировать USB/AT-поведение проверенных DJI cellular-модемов отдельно
 от DUML/DUSS 4G-команд FreeFCC. Наличие интернет-соединения у модема не
@@ -436,17 +436,25 @@ version в DJI Fly.
 
 - hash соответствующего раздела в payload manifest;
 - `FILE_HASH` полного `payload.bin`;
-- metadata и full-payload RSA signatures;
-- для изменения готового partition image также AVB descriptors/hash tree.
+- metadata и full-payload RSA signatures (подписаны приватным **DJI OTA**-ключом);
+- AVB descriptors/hash tree раздела (подписаны ключом **vbmeta**).
 
-В firmware присутствует только публичный DJI OTA certificate. Закрытого ключа,
-необходимого для пересчёта signatures, в проверенном corpus нет. Опубликованные
-`PRAK-*` в `dji-firmware-tools` также являются публичными ключами проверки
-внешнего IMAH-контейнера; приватные community `SLAK-*` не являются доверенным
-DJI OTA-ключом. Поэтому launcher может установить старую неизменённую и
-правильно подписанную OTA, но не может штатно установить самостоятельно
-изменённую свежую OTA. Для такого варианта сначала потребовался бы отдельный
-доказанный bypass `update_engine`/AVB либо доверенный приватный ключ DJI.
+Здесь два разных ключа, и их важно не путать. **DJI OTA-ключ** (`otacert`,
+metadata/full-payload RSA) приватный и в corpus его нет: опубликованные `PRAK-*`
+в `dji-firmware-tools` — публичные ключи проверки внешнего IMAH-контейнера,
+приватные community `SLAK-*` доверенным DJI OTA-ключом не являются. Поэтому через
+штатный `update_engine` можно установить старую неизменённую подписанную OTA, но
+нельзя протолкнуть самостоятельно изменённую — это остаётся реальным барьером.
+
+**AVB-ключ (`vbmeta`/`vbmeta_system`) — напротив, публичный AOSP test key**
+(`testkey_rsa4096`/`rsa2048`, проверено побайтно, см. ниже). Его приватная часть
+опубликована в AOSP, поэтому секретность AVB signing key здесь не является
+барьером. Это **не** означает, что любой изменённый образ автоматически загрузится:
+нужны корректные descriptors/hash tree всей chain `vbmeta` → `vbmeta_system`,
+согласованные rollback indices и отдельный примитив записи. При OEM unlock
+verified boot обычно переходит в `orange`; возврат в `green` после relock на этом
+пульте не проверен. AVB продолжает защищать блоки и остаётся частью boot-барьера,
+хотя его signing chain можно пересобрать без секретного DJI AVB-ключа.
 
 ### Доказанный auth gate
 
@@ -503,6 +511,194 @@ dongle_display_control != 0 && lte_get_country_region() == 1
 `dongle_display_control=false`; он требует отдельного безопасного способа
 подмены read-only config/verified system и здесь не выполнялся.
 
+### Security posture RC Pro 2 (`rc520`), build `576` внутри bundle `0700`/`0800`
+
+Проверено, что внешние bundle `V01.00.0700_rc520` и стоящий на живом пульте
+`01.00.0800` не меняют Android sys_app: модуль `0205` в `0700` байт-в-байт
+совпадает с ранее извлечённым `rc520_0205_v55.31.05.76_20260410`
+(sha256 `86d1b308479f48b76619e61ebbeeaaaa2c71bf5d918f5d391c8dd0267a901cdb`), а
+живой пульт при `dji.prop.external_version=01.00.08.00` по-прежнему рапортует
+`ro.build.id=V55.31.05.76`. Поэтому четыре пункта ниже относятся ко всей линейке
+`0700`/`0800`. Значения сняты вживую по adb с подключённого `rc520` (uid
+`shell`, `getenforce` → `Permissive`) и совпадают со статикой образов.
+
+- **`ro.debuggable` / adb** — `ro.debuggable=0`, `ro.secure=1`,
+  `ro.adb.secure=1`. `adb root` → `adbd cannot run as root in production builds`.
+  `su` в образах нет. Root по adb недоступен. У RC 2 (`rc331`) статические props
+  отличаются (`ro.debuggable=1`/`ro.secure=0`), но на проверенном production
+  RC 2 live root-ADB также недоступен — см. раздел RC 2.
+- **Downgrade policy** — `ro.ota.allow_downgrade=true` (совпадает с ранее
+  задокументированным путём OpenFCC на build `139`).
+- **AVB** — верификация enforced и bootloader заблокирован:
+  `verifiedbootstate=green`, `vbmeta.device_state=locked`, `veritymode=enforcing`,
+  `flash.locked=1`, `ro.boot.avb_version=1.1`,
+  `ro.boot.vbmeta.avb_version=1.0`. chain `vbmeta` → `vbmeta_system`,
+  dm-verity+FEC на `system/system_ext/product/vendor/odm` (`flags=0x0`). **Но
+  ключи AVB — публичные AOSP test keys, а не приватные DJI.** Проверено побайтно
+  через `avbtool extract_public_key` из локального AOSP-репозитория
+  (`.scratch/tools/avb`): `vbmeta` подписан `testkey_rsa4096.pem`
+  (AVB-blob sha1 `2597c218aae470a130f61162feaae70afd97f011`,
+  sha256 `7728e30f50bfa5cea165f473175a08803f6a8346642b5aa10913e9d9e6defef6`),
+  chain на `vbmeta_system` — `testkey_rsa2048.pem` (sha1
+  `cdbb77177f731920bbe0a0f94f84d9038ae0617d`). Приватные части этих ключей
+  опубликованы в AOSP `external/avb/test/data`. Текущая `green`+`locked`
+  chain подписана этими test keys, но успешная загрузка произвольно
+  изменённого образа и green после unlock/relock live не проверялись.
+  `ro.oem_unlock_supported=1`, устройство locked.
+- **Runtime overlay** — overlayfs в ядре присутствует (`/proc/filesystems`:
+  `nodev overlay`), но overlay-записи в `fstab` нет, а без root его не поднять.
+  На `rc520` путь bind-mount/overlay недостижим без
+  предварительного получения root или oem-unlock: `ro.debuggable=0`,
+  заблокированный загрузчик и green/enforcing AVB закрывают и adb-root, и загрузку
+  модифицированного образа. Единственное послабление — SELinux в `Permissive`,
+  но одному shell-uid это записи в RO `/system` не даёт.
+
+Практический вывод: контролируемый runtime-тест `dongle_display_control=false`
+на `rc520` требует сначала отдельного root/unlock-примитива; штатных средств для
+него в `0700`/`0800` нет. Статические props `rc331` также не дают рабочего root-ADB;
+для runtime bind/overlay на нём тоже нужен отдельный root-примитив.
+
+## Полный разбор регионального 4G-гейта и всех путей обхода (`rc520`, build `576`)
+
+Разобрано по декомпиляции `dji_lte` (`V55.31.05.76`, Ghidra 12.1.2 + objdump)
+и извлечённому `/system/etc/lte_cfg.json`. Все адреса/офсеты — из этого бинаря.
+
+### Точная логика гейта — `set_liblte_auth_info` @ `0x166f48`
+
+AUTH_PARAM (`liblte_set_param(...,1,...)` @ `0x167020`) НЕ передаётся в `liblte`,
+и функция уходит в error-ветку, если истинно **любое** из условий (offset'ы — от
+`lte_handle`):
+
+| Условие | Offset | Смысл |
+|---|---|---|
+| `local_modem_num == 0` | `+0xed1` | модем не обнаружен |
+| `country_code[0] == '\0'` | `+0xb8ac` | страна ещё не получена / пуста |
+| `b_black_list_country == 1` | `+0xb8b0` | страна в `lte_black_list` |
+| `peer_bool_insert_dongle() == 0` | — | peer dongle не обнаружен |
+| `dongle_display_control != 0 && lte_get_country_region() == 1` | `+0x5ee1` | **региональный гейт** (не-CN) |
+| `sim_ready != 1 && esim_state == 0` | `+0xeee`/`+0xee9` | SIM/eSIM не готов |
+
+Региональная ветка — единственный новый терм в этом верхнеуровневом predicate
+относительно build `139`. Обходим её,
+делая ложным один из операндов: `dongle_display_control` или `region`.
+
+### Операнд A — `region` (страна). Самый доступный вектор
+
+`lte_get_country_region` @ `0x15937c` буквально:
+
+```c
+if (country_code[0] == '\0') return 0;          // офсет +0xb8ac
+return strncmp(country_code, "CN", 4) == 0 ? 2 : 1;
+```
+
+Значит `region == 1` истинно для **любой непустой страны кроме CN**. Достаточно,
+чтобы `country_code == "CN"` → `region == 2` → операнд ложен → гейт снят.
+Побочно `"CN"` не входит ни в `lte_black_list` (`[US, TH]`), ни в
+`single_frequency_cn_list` (`[JP, RU, IL, UA, KZ]`), так что чисто проходит.
+
+**Откуда берётся `country_code` (`+0xb8ac`).** Пишет его ровно одна функция —
+`get_country_code_ack` @ `0x1d3054`:
+
+- `get_country_code` @ `0x1f95ec` шлёт `duss_event_send` (заголовок `0x70019`,
+  т.е. cmd_set `0x07` / cmd_id `0x19`) хост-пиру `*(handle+0x88)+0x16` (аппарат/
+  link-worker; в конфиге `peer_wlm_host_id=0x0907`, `local_host=0x0e06`);
+- `get_country_code_ack` берёт **2-байтную ASCII-строку страны** из ответа по
+  офсету `param_2+0x15`, при валидации только длины (`param_2+0x10 >= 3`),
+  **без какой-либо подписи/аутентичности**, пишет её в `country_code`, затем
+  прогоняет `bool_country_in_lte_black_list`, `bool_country_in_single_frequency_cn_list`
+  и вызывает `pair_set_peer_bindinfo` → цепочку auth.
+
+Это точно соответствует задокументированному DUML-обмену country code
+(`docs/DUML_STREAM_MAP.md:205-212`): read-only **`07:19`** (пустой запрос → ответ
+`[status][ASCII cc x2][00]`, напр. `00 54 52 00`=`TR`) и country-write команды
+**`07:18`/`07:30`**. У них общий `cmd_set 0x07`, но разные `cmd_id`: `0x18`/`0x30`
+для write и `0x19` для readback; country кодируется двумя ASCII-байтами.
+
+**LIVE-подтверждение на `rc520` (2026-07-22, пульт включён, аппарат
+`disconnected`, без модема).** Через LAN-bridge (`duml_request`) на localhost-proxy
+`8901` отправлен `07:19`:
+
+```
+request : 55 0d 04 33 | 2a 09 be18 | 40 07 19 | 3eb4      (sender 0x2a → dst 0x09, empty)
+response: 55 11 04 92 | 09 2a be18 | 80 07 19 | 0052 5500 | 51df
+payload : 00 52 55 00   =  [status=0x00]["RU"][0x00]
+```
+
+То есть модуль `0x09` штатно ответил страной **`RU`** — совпадает с
+`persist.rc.country=RU` и с форматом, предсказанным из `get_country_code_ack`
+(offset payload `+0x15`, 2 байта ASCII, терминатор). Ответ пришёл **без
+подключённого аппарата**, локально. Это end-to-end подтверждает: (1) `07:19` —
+именно country readback; (2) формат `[status][CC][00]`; (3) доступный через LAN-bridge
+country state совпадал с `persist.rc.country`. Само совпадение не доказывает, что
+Android property является непосредственным источником ответа.
+
+**LIVE country-write (2026-07-22).** На `rc520` через proxy `8901` команда `07:30=CN`
+получила ACK `00 01`, после чего `07:19` дважды вернул `00 43 4e 00` (`CN`).
+Первые попытки `07:18`/`07:30` через `40009` не дали matching response и не
+изменили readback. На `rc331` тот же `07:30=CN` дал ACK и `07:19=CN`, затем
+`07:30=RU` дал ACK и `07:19=RU`. Тем самым мутируемость и readback country state
+подтверждены на обоих пультах. Не подтверждены отдельным логом: приём
+нового значения внутренним `dji_lte`, успешная передача `AUTH_PARAM` и построение
+end-to-end LTE link.
+
+**Регистрация хендлера:** `get_country_code_ack` регистрируется в общей таблице
+event-акторов (@ `~0x93054`, id `0x19` среди `0x07..0x21`). Сам хендлер проверяет
+длину и ненулевой country code, но не проверяет sender или signature. Однако из этого
+ещё нельзя заключать, что DUSS framework не фильтрует source/route до вызова хендлера
+или что unsolicited ACK будет принят без active request.
+
+### Операнд B — `dongle_display_control` (`+0x5ee1`)
+
+Грузится **только** из статического `/system/etc/lte_cfg.json`, блок `mdm_mgr`
+(`"dongle_display_control": true`; в build `139` ключа нет). Путь конфига задаёт
+`ro.lte.json` (= `/system/etc/lte_cfg.json`) — `ro.`-проперти, в рантайме не
+переставить без root. Раздел `/system` — RO + dm-verity + FEC.
+
+**Облачный конфиг гейт НЕ трогает.** `lte_config_parse_dongle_ctrl` @ `0x20a93c`
+парсит из cloud-config только `dongle_ctrl → band_ctrl` (управление бэндами), не
+`dongle_display_control`. Кэш облака — `/cloud_config/prod/cloud_config[_<CC>].json`
+и зеркало `/blackbox/system/cloud_config.json` (`lte_cloud_control_gen_config_file_name`
+@ `0x20ad20`). Даже правка кэша (нужен root) флаг display-гейта не меняет.
+
+### Почему запись EF_LOCI не меняет country-операнд
+
+`dji_mini_set_esim_plmn` @ `0x181484` пишет через `AT+CRSM=214,28542,…` в
+**EF `0x6F7E` (EF_LOCI, location information)** запись с LAI, где MCC/MNC —
+**китайские**: `…64F000…`=`460/00` (China Mobile), `…64F010…`=`460/01`
+(China Unicom). `send_simswitch`/`send_simswitch_overseas` (@ `0x1853b4`/`0x185454`)
+по региону переключают лишь **между двумя китайскими операторами** (CN region →
+CM, overseas → CU). Это доказывает китайские PLMN в данной EF_LOCI-ветке, но не полный
+provisioning всех DJI eSIM-профилей. `country_code` auth gate хранится отдельно и
+обновляется из ответа `07:19`, поэтому эта конкретная запись EF_LOCI сама по себе
+не меняет country-операнд гейта.
+
+### Итоговая таблица путей обхода (без даунгрейда), `rc520` locked/no-root
+
+| # | Путь | Root/unlock? | Reflash? | Persist | Достоверность | Замечания |
+|---|---|---|---|---|---|---|
+| A1 | Подделать ACK `07:19` со значением `"CN"` в шину, которую слушает `dji_lte` | нет | нет | до перезагрузки | средняя (нужна проверка достижимости шины) | хендлер без подписи, только длина; линия FreeFCC (`/duss/mb/0x205`, `DumlTransport`) |
+| A2 | Country-write `07:30=CN` через LAN-bridge к модулю `0x09` | нет | нет | зависит | высокая для write/readback; средняя для auth | `CN` readback live подтверждён; влияние на internal `dji_lte`/RF и LTE link нужно доказать отдельно |
+| B1 | Root-эксплойт → `mount --bind` подмена `lte_cfg.json` (`dongle_display_control=false`) | root | нет | до перезагрузки | высокая (если есть root) | verity-safe (VFS), overlayfs в ядре есть; AVB не нужен |
+| B2 | OEM-unlock + пересобранный `system`/vbmeta, переподпись публичным AOSP test key | unlock | да (flash) | да | средняя | signing key доступен, но write/unlock/relock, descriptors, rollback и boot изменённой chain live не проверены |
+| — | Cloud config / `persist.*` / `ro.lte.json` | — | — | — | опровергнуто | display-гейт не трогают (проверено) |
+
+Порядок предпочтения по текущей доказательной базе: **A2 → A1 → B1 → B2**. A2 уже
+доказан как write/readback, но его влияние на internal `dji_lte` auth ещё нужно снять из
+лога/внутреннего потока. Для A1 дополнительно неизвестны source/route фильтры DUSS.
+
+### Статус проверки и открытые вопросы
+- **Подтверждено (live):** `07:19` read → `[status][CC][00]`, пульт отдаёт `RU`
+  (см. выше). Формат и семантика из `get_country_code_ack` верны. A2-запись
+  `07:30=CN` и readback `07:19=CN` выполнены на `rc520` и `rc331`; на `rc331` также
+  подтверждён возврат в `RU`.
+- **Осталось (live/RE):** подтвердить, что новый country state доходит до
+  `dji_lte`, снимает именно region-операнд auth predicate и не упирается в
+  peer dongle/SIM/другие условия.
+- **Осталось (RE):** отличается ли внутренняя шина `dji_lte`↔пир (`@/duss/mb/0xe06`
+  ↔ `0x0907`/`0x0806`) от проксируемого DJI-Fly пути `8901`; принимает ли
+  `dji_lte` ACK `0x19` от произвольного локального отправителя (для A1-инъекции
+  без DJI-Fly). Проверяется live-захватом (`duml_capture`) внутреннего `07:19`.
+
 ## Предварительный анализ RC 2 (`rc331`)
 
 Отдельно начат анализ скачанного официального bundle RC 2; его данные нельзя
@@ -534,9 +730,68 @@ fingerprint 52:32:A1:44:C8:4A:04:EA:34:02:A0:27:BF:AD:76:B4:F3:21:E0:C3:5D:0F:F5
 Маркер `user/test-keys` заметно отличается от RC Pro 2
 `user/release-keys`, но сам по себе не доказывает, что RC 2 примет OTA,
 подписанную произвольным test key: доверенные OTA/AVB keys и runtime policy
-нужно проверять отдельно. На следующий сеанс остаются извлечение partitions,
-проверка `ro.ota.allow_downgrade`, `ro.debuggable`, AVB key descriptors,
-`dji_lte`/init services и доступных способов временного bind/overlay.
+нужно проверять отдельно.
+
+### Извлечение partitions и проверка runtime policy (`V00.01.14.99`)
+
+`payload.bin` внутри модуля `0205` — стандартная A/B OTA (`CrAU`, version 2,
+29 partitions). Партиции извлечены `payload_dumper`; `system`/`vendor` —
+ext4, распакованы `debugfs` без монтирования. Проверены четыре пункта.
+
+**`ro.debuggable` / adb policy.** В root-ramdisk (`boot.img`, boot header v3)
+`default.prop` и `prop.default` содержат `ro.debuggable=1`, `ro.secure=0`,
+`ro.adb.secure=0`. При этом `system/build.prop` даёт `ro.build.type=user`.
+Эти props описывают отладочную конфигурацию образа, но сами по себе не доказывают
+доступный ADB transport, запуск `adbd` с нужной policy или root-shell. Live-проверка
+RC 2 root-ADB не подтвердила: ни USB, ни LAN не дали root-shell. `su` в образах нет.
+
+**Downgrade policy.** `vendor/build.prop`: `ro.ota.allow_downgrade=true` —
+как и на RC Pro 2 `576`. Старый timestamp сам по себе штатный A/B
+`update_engine` не блокирует; signature/hash/device-checks сохраняются.
+
+**AVB.** Оба vbmeta подписаны и verification включена (`flags=0x0`, ни
+`HASHTREE_DISABLED`, ни `VERIFICATION_DISABLED`). `vbmeta` (algo SHA256_RSA4096)
+цепляется на `vbmeta_system` через CHAIN-дескриптор. HASH-дескрипторы на `boot`,
+`dtbo`, `vendor_boot`; HASHTREE (dm-verity + FEC) на `system`, `system_ext`,
+`product`, `vendor`, `odm`. `fstab.default` монтирует все эти разделы `ro … avb …
+first_stage_mount`; у `system` дополнительно
+`avb_keys=…/q-gsi.avbpubkey:…/r-gsi.avbpubkey:…/s-gsi.avbpubkey` (штатный путь
+для GSI). **Ключи AVB — публичные AOSP test keys (как и на RC Pro 2):** `vbmeta`
+= `testkey_rsa4096.pem` (AVB-blob sha1 `2597c218…`, sha256 `7728e30f…`),
+`vbmeta_system` = `testkey_rsa2048.pem` (sha1 `cdbb7717…`); совпадение
+подтверждено `avbtool extract_public_key`. Приватные части опубликованы в AOSP,
+поэтому секретность AVB signing key здесь не является барьером. Для загрузки
+изменённого раздела всё равно нужны корректная chain descriptors/hash tree,
+rollback metadata и отдельный write/unlock-примитив; этот путь live не проверен.
+Отдельно остаётся барьер OTA-канала: сам `payload.bin` подписан приватным DJI
+OTA-ключом (`otacert`), которого в corpus нет, — через штатный `update_engine`
+модифицированную OTA протолкнуть нельзя. Это два разных ключа, и раньше они были
+ошибочно слиты в один.
+
+**Runtime overlay.** Отдельной overlay-записи в `fstab` нет, персистентный
+`remount,rw` закрыт dm-verity/FEC. Bind-mount отдельного файла теоретически может
+подменить VFS path без изменения verified blocks, но для этого нужен root и mount
+capability. Поскольку root-ADB нет и безопасный bind-тест не выполнялся, runtime overlay
+на `rc331` **недоступен в текущем штатном состоянии** и остаётся путём после получения
+отдельного root-примитива.
+
+**Сопутствующее по региональному gate.** В RC 2 `lte_cfg.json`
+ключа `dongle_display_control` нет; вместо него `skip_dongle_check: 1`,
+`skip_dongle_expire: 1` и `enable_dongle:["dji_mini"]`. То есть механизм
+региональной привязки RC Pro 2 `0400+` в этой сборке RC 2 отсутствует; dongle
+handling у `rc331` иной и требует отдельного разбора, не переносимого с RC Pro 2.
+
+| Пункт | Значение | Источник |
+|---|---|---|
+| `ro.debuggable` | `1` (статика; root-ADB недоступен на проверенном production RC 2) | ramdisk `default.prop`/`prop.default` + live-проверка |
+| `ro.secure` / `ro.adb.secure` | `0` / `0` (статика; ADB transport/root не следуют автоматически) | ramdisk `default.prop` |
+| `ro.build.type` | `user` | `system/build.prop` |
+| `ro.ota.allow_downgrade` | `true` | `vendor/build.prop` |
+| AVB verification | включена (`flags=0x0`) | `vbmeta`, `vbmeta_system` |
+| AVB pubkey | публичные AOSP test keys (`testkey_rsa4096`/`rsa2048`) | `avbtool extract_public_key`, sha1 `2597c218`/`cdbb7717` |
+| dm-verity+FEC | `system`,`system_ext`,`product`,`vendor`,`odm` | vbmeta HASHTREE + `fstab.default` |
+| overlay в fstab | отсутствует | `fstab.default` |
+| runtime bind/overlay | недоступен без отдельного root-примитива; live не проверен | props+fstab+live отсутствие root-ADB |
 
 ## Граница с FreeFCC и OpenFCC
 
