@@ -82,6 +82,29 @@ Aircraft identity is split into `aircraft_model_code` (for example `WA530`) and
 `aircraft_serial` (full factory S/N or the best serial form observed). Cached
 display values never bypass the fresh identity requirement for a 4G send.
 
+## Bounded OpenFCC/DJI logcat capture
+
+`logcat_capture` starts a narrow read-only capture for OpenFCC and DJI LTE/WLM
+diagnostics. It runs the fixed `/system/bin/logcat` executable directly; callers
+cannot supply tags, a shell command, a file path, or a destination. The capture
+does not connect to any DUML/DUSS socket.
+
+```bash
+curl -sS -X POST \
+  -H "X-FreeFCC-Password: $FREEFCC_PASSWORD" \
+  --data 'command=logcat_capture' \
+  --data 'duration_ms=60000' \
+  "$FREEFCC_URL/api/command"
+```
+
+The command returns `202 Accepted`; read the captured lines from `/logs` while
+OpenFCC performs the test. `duration_ms` defaults to `60000` and is limited to
+`1000..120000`. A second capture returns `409 logcat_capture_busy`. Output is
+limited to 160 lines of 4096 characters and includes only `DUSS73`, known
+`OpenFCC.*` tags, `OpenFCC-LinkState`, and `AndroidRuntime` errors. Android may
+still deny cross-process logs even when `READ_LOGS` is declared; the completion
+line then reports zero lines rather than claiming that OpenFCC was idle.
+
 ## Localhost socket inventory
 
 `local_socket_inventory` performs a one-shot passive inventory of

@@ -37,7 +37,7 @@ A free and open-source Android app that unlocks FCC mode, sends experimental 4G 
 | **Device Info** | Shows app version, controller code, aircraft model code, factory S/N, and LAN bridge address |
 | **Auto FCC** | Offers one-shot DJI Fly Home Point text detection or the original four-frame keepalive every five seconds |
 | **Auto-Updater** | Checks `danusha2345/FreeFCC` GitHub Releases and lets you download/install from the app |
-| **LAN Diagnostic API** | Logs, live status, one-shot localhost socket inventory, allowlisted app actions, and raw DUML request/response over HTTP on the controller's RFC1918 Wi-Fi address |
+| **LAN Diagnostic API** | Logs, live status, bounded OpenFCC/DJI `logcat`, one-shot localhost socket inventory, allowlisted app actions, and raw DUML request/response over HTTP on the controller's RFC1918 Wi-Fi address |
 | **Local by default** | Internet is used for update checks/downloads; the LAN API stays inside the current Wi-Fi subnet and can be disabled in the Log tab |
 | **Open Profiles** | Command frames are plain JSON files you can inspect and edit |
 | **No Paid Activation** | No trial, tracking, or external licensing backend |

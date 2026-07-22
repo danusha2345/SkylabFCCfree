@@ -1,5 +1,22 @@
 # История изменений
 
+## 1.5.42 — 2026-07-22
+
+- Добавлена асинхронная LAN-команда `logcat_capture` для bounded read-only
+  захвата `DUSS73`, известных `OpenFCC.*`/`OpenFCC-LinkState` tags и
+  `AndroidRuntime` errors. По умолчанию она работает 60 секунд, допускает
+  `1000..120000 мс`, сохраняет не более 160 строк и не открывает DJI
+  DUML/DUSS-сокеты.
+- Команда запускает только фиксированный `/system/bin/logcat`: LAN-клиент не
+  может передать собственный tag, shell command, путь или destination. Повторный
+  параллельный запуск получает `409 logcat_capture_busy`.
+- В журнале явно фиксируется runtime-статус protected permission `READ_LOGS`.
+  Если firmware RC2 не разрешает cross-process logs, завершение с 0 строками не
+  выдаётся за отсутствие активности OpenFCC.
+- Зафиксирован первый live-результат OpenFCC 1.2.30 на Avata 360 + RC2: FCC
+  включается, но встроенный eSIM не активировался и вкладка оплаты DJI не
+  появилась. Новый logcat capture предназначен для локализации этой ветки.
+
 ## 1.5.41 — 2026-07-21
 
 - После первого live inventory RC2 удалён активный localhost connect-scan:

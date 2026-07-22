@@ -1,7 +1,9 @@
 package com.freefcc.app
 
+import android.Manifest
 import android.app.Application
 import android.content.Context
+import android.content.pm.PackageManager
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
@@ -113,6 +115,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         private val processLogLock = Any()
         private val processLogs = ArrayDeque<String>()
         private val lanDiagnosticBusy = AtomicBoolean(false)
+        private val logcatCaptureBusy = AtomicBoolean(false)
         private val ledOperationBusy = AtomicBoolean(false)
         private val gpsOperationBusy = AtomicBoolean(false)
         @Volatile private var activeLanController: FccViewModel? = null
@@ -159,7 +162,8 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             "duml_request",
             "duml_capture",
             "wire_exchange",
-            "local_socket_inventory"
+            "local_socket_inventory",
+            "logcat_capture"
         )
 
         private val FULL_SERIAL_PATTERN = Regex("^1581[0-9A-Z]{12,18}$")
@@ -1804,7 +1808,8 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         "wrapper=true|false (duml_send only)",
                         "duration_ms=100..10000 (duml_capture)",
                         "max_frames=1..128 (duml_capture)",
-                        "wire_hex, duration_ms, max_bytes (wire_exchange)"
+                        "wire_hex, duration_ms, max_bytes (wire_exchange)",
+                        "duration_ms=1000..120000 (logcat_capture, default 60000)"
                     )
                 )
             )
@@ -1854,6 +1859,11 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 "duml_capture" -> handleLanDumlCapture(params)
                 "wire_exchange" -> handleLanWireExchange(params)
                 "local_socket_inventory" -> handleLocalSocketInventory()
+                "logcat_capture" -> acceptedBoolean(
+                    command,
+                    startLogcatCapture(params),
+                    "logcat_capture_busy"
+                )
                 else -> lanError(400, "unknown_command")
             }
         } catch (e: IllegalArgumentException) {
@@ -2396,6 +2406,33 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     /** Launches a coroutine on Dispatchers.IO for network operations. */
     private fun runOnIO(block: suspend () -> Unit): Job =
         viewModelScope.launch(Dispatchers.IO) { block() }
+
+    private fun startLogcatCapture(params: Map<String, String>): Boolean {
+        val durationMs = LogcatCapture.durationMs(params)
+        if (!logcatCaptureBusy.compareAndSet(false, true)) return false
+        val readLogsGranted = app.checkSelfPermission(Manifest.permission.READ_LOGS) ==
+            PackageManager.PERMISSION_GRANTED
+        log(
+            "OpenFCC/DJI logcat capture started for ${durationMs}ms; " +
+                "READ_LOGS granted=$readLogsGranted"
+        )
+        runOnIO {
+            try {
+                val result = LogcatCapture.capture(durationMs) { line ->
+                    log("LOGCAT $line")
+                }
+                val suffix = buildString {
+                    append("${result.lineCount} lines")
+                    if (result.truncated) append(", truncated")
+                    result.error?.let { append(", error=$it") }
+                }
+                log("OpenFCC/DJI logcat capture finished: $suffix")
+            } finally {
+                logcatCaptureBusy.set(false)
+            }
+        }
+        return true
+    }
 
     override fun onCleared() {
         if (activeLanController === this) activeLanController = null
