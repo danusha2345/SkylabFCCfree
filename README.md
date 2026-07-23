@@ -35,7 +35,7 @@ A free and open-source Android app that unlocks FCC mode, sends experimental 4G 
 | **GPS Control** | Reads the master `gps_enable` state and provides experimental explicit ON/OFF commands with one-shot readback |
 | **LED Control** | Reads the current lamp state and verifies it after LED on/off commands (DJI Fly and a linked aircraft are required) |
 | **Device Info** | Shows app version, controller code, aircraft model code, factory S/N, and LAN bridge address |
-| **Auto FCC** | Offers one-shot DJI Fly Home Point text detection or the original four-frame keepalive every five seconds |
+| **Auto FCC** | Saves one of two optional startup modes: repeated DJI Fly Home Point detection or the original four-frame keepalive every five seconds |
 | **Persistent Status** | Shows a foreground notification and starts the app service automatically after controller boot without sending FCC commands |
 | **Auto-Updater** | Checks `danusha2345/FreeFCC` GitHub Releases and lets you download/install from the app |
 | **LAN Diagnostic API** | Logs, live status, bounded OpenFCC/DJI `logcat`, one-shot localhost socket inventory, allowlisted app actions, and raw DUML request/response over HTTP on the controller's RFC1918 Wi-Fi address |
@@ -82,21 +82,27 @@ The captured 4G profile is experimental and was derived from systems using exter
 
 Validated upstream on DJI RC2 firmware v10.00.0700; this fork was additionally exercised live on RC2 `rc331`. Future firmware can change the local proxy or DUML routing, so compatibility must be rechecked rather than assumed.
 
-**Auto FCC — Home Point** connects once, switches focus to the original DJI Fly,
-and waits for its localized Home Point text through Android Accessibility. It
-does not open a DUML socket while waiting. After an exact phrase match it sends
-the complete 21-frame × 2-round FCC profile once on the port pinned by Connect,
-then stops. Enable **SkylabFCCfree Home Point Test** once in Android Accessibility
-settings. On the first run the **Auto FCC — Home Point** button opens the
-required Android settings automatically; after the service is enabled and you
-return to SkylabFCCfree, the text-based mode starts without a second tap.
+The FCC page always keeps the same compact `2×2` control grid. The two Auto FCC
+switches are on the left; **Send FCC Request** and the highlighted
+**Open DJI Fly** action are on the right. The switches are mutually exclusive,
+but both may be off. The selected switch is highlighted in green, saved, and
+restored when the app starts after controller boot or an APK update.
+
+**Auto FCC — Home Point** waits for localized Home Point text from the original
+DJI Fly through Android Accessibility. It does not open a DUML socket while
+waiting. After an exact phrase match it connects to the controller if needed and
+sends the complete 21-frame × 2-round FCC profile. It then re-arms instead of
+stopping, so a later Home Point after an aircraft battery replacement triggers
+another full apply while the controller remains on. Duplicate UI events are
+debounced for 30 seconds. Enable **SkylabFCCfree Home Point Test** once in
+Android Accessibility settings. The first attempt opens the required settings;
+after the service is enabled and you return to SkylabFCCfree, the mode starts.
 
 **Auto FCC — every 5 sec** is the explicit legacy alternative. It sends the
 complete profile once, then sends the original upstream four-frame
-`fcc_keepalive.json` every five seconds until **Cancel Auto FCC**. During either
-Auto mode the manual action is hidden and cancellation remains available in the
-app and foreground notification. **Send FCC Request** remains a one-shot manual
-full-profile action.
+`fcc_keepalive.json` every five seconds until its switch is turned off.
+**Send FCC Request** remains a one-shot manual full-profile action. Neither
+automatic mode nor the manual action opens DJI Fly; only **Open DJI Fly** does.
 
 If you test it on a model or firmware version not listed here, please [open an issue](https://github.com/danusha2345/FreeFCC/issues) and let me know.
 
@@ -152,22 +158,21 @@ Reading the screen does not open DUML; an armed Home Point match triggers one
 full FCC apply.
 
 1. Power on the drone and link it to the controller
-2. Choose **Auto FCC — Home Point**, **Auto FCC — every 5 sec**, or the one-shot **Send FCC Request**.
-3. Home Point mode switches focus to DJI Fly and sends the full profile once when its localized Home Point text appears. Five-second mode sends the full profile once and then the original four-frame keepalive until cancellation. While either Auto mode is active, only **Cancel Auto FCC** is shown instead of the manual action.
-   After replacing the aircraft battery without restarting the controller, start the preferred Auto mode again for the new flight session.
+2. Turn on **Auto FCC — Home Point**, turn on **Auto FCC — every 5 sec**, or use the one-shot **Send FCC Request**. Turning one switch on turns the other off; turning the active switch off leaves both off.
+3. Open DJI Fly only with **Open DJI Fly**. Home Point mode remains armed and sends the full profile after every new flight-session Home Point, including after replacing the aircraft battery without restarting the controller. Five-second mode sends the full profile once and then the original four-frame keepalive until its switch is turned off.
 4. For 4G diagnostics, tap **Probe 4G Endpoint** first. This is read-only and only checks whether `/duss/mb/0x205` is reachable. **Send 4G Activation Frames** remains experimental and confirms writes only, not activation.
    > **Note:** The integrated eSIM path on DJI Avata 360 is not yet proven compatible with the captured external-module profile. Please attach the LAN logs to an [issue](https://github.com/danusha2345/FreeFCC/issues) when testing.
-5. To request CE restore, tap **Send CE Restore**. The app confirms transport writes only; verify the actual RF mode in DJI Fly.
-6. The aircraft-control card is split evenly: GPS on the left and LED on the right. Each side has its own manual refresh and explicit ON/OFF buttons, available without starting Auto FCC first. GPS ON/OFF sends five bounded idempotent writes 100 ms apart, releases port `40007`, and after 250 ms automatically runs a three-attempt status Refresh. Every status attempt opens a new port lease instead of reusing a failed one. LED ON/OFF makes at most two complete reference-pattern command cycles. GPS/LED stay on the wrapped `40007` path because live RC Pro 2 tests found no matching readback on `40009` or `8901`. The last validated replies persist across app reopen with a `Last verified` timestamp, and a failed manual refresh does not erase them. A GPS write invalidates the older cached value until the fresh Refresh completes, so the UI never presents the pre-command OFF/ON as current. Neither side polls port `40007` in the background.
-7. The **Info** tab lets you query the controller's hardware and firmware version
-8. The **Log** tab starts the LAN diagnostic API by default. It uses unencrypted HTTP and a fixed shared password. A UDP beacon broadcasts only the controller IP and port across the current Wi-Fi subnet; it does not include the password, logs, or command payloads. Disable the bridge on untrusted Wi-Fi. See [LAN Control API](docs/LAN_CONTROL_API.md) and the evidence-based [RC2 port and stream map](docs/RC2_PORT_AND_STREAM_MAP.md).
+5. The aircraft-control card is split evenly: GPS on the left and LED on the right. Each side has its own manual refresh and explicit ON/OFF buttons, available without starting Auto FCC first. GPS ON/OFF sends five bounded idempotent writes 100 ms apart, releases port `40007`, and after 250 ms automatically runs a three-attempt status Refresh. Every status attempt opens a new port lease instead of reusing a failed one. LED ON/OFF makes at most two complete reference-pattern command cycles. GPS/LED stay on the wrapped `40007` path because live RC Pro 2 tests found no matching readback on `40009` or `8901`. The last validated replies persist across app reopen with a `Last verified` timestamp, and a failed manual refresh does not erase them. A GPS write invalidates the older cached value until the fresh Refresh completes, so the UI never presents the pre-command OFF/ON as current. Neither side polls port `40007` in the background.
+6. The **Info** tab lets you query the controller's hardware and firmware version
+7. The **Log** tab starts the LAN diagnostic API by default. It uses unencrypted HTTP and a fixed shared password. A UDP beacon broadcasts only the controller IP and port across the current Wi-Fi subnet; it does not include the password, logs, or command payloads. Disable the bridge on untrusted Wi-Fi. See [LAN Control API](docs/LAN_CONTROL_API.md) and the evidence-based [RC2 port and stream map](docs/RC2_PORT_AND_STREAM_MAP.md).
 
 SkylabFCCfree also keeps a low-priority foreground notification visible while
 the controller is running. The service starts after controller boot and after
-an in-place APK update, but it never enables FCC, starts Auto FCC, or opens DJI
-Fly by itself. Tap the notification to open the app. On Android 13 and newer,
-allow notifications when prompted; after an Android force-stop, open the app
-once to let the system enable automatic startup again.
+an in-place APK update. If an Auto FCC switch was selected, that mode is
+restored without opening DJI Fly; if both switches were off, no FCC command is
+started. Tap the notification to open the app. On Android 13 and newer, allow
+notifications when prompted; after an Android force-stop, open the app once to
+let the system enable automatic startup again.
 
 ## How Do I Know If It Worked?
 
@@ -307,7 +312,7 @@ app/src/main/
     FccRuntime.kt      Process-local FCC write and monitor runtime evidence
     HomePointMonitor.kt Retained direct/wrapped 03:44 RE parser and tests
     LedReadback.kt      Strict 03:F8 lamp-state decoding
-    FccKeepaliveService.kt Text-triggered one-shot + five-second periodic Auto FCC
+    FccKeepaliveService.kt Repeating Home Point + five-second periodic Auto FCC
     LanControl.kt      LAN command validation and JSON encoding
     NetworkLogServer.kt Private-Wi-Fi logs/status/command HTTP API
     Profiles.kt        JSON profile loader

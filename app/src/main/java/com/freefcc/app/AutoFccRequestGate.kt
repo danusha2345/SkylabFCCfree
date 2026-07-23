@@ -1,7 +1,7 @@
 package com.freefcc.app
 
 /**
- * Process-local desired-state gate for one-shot Auto-FCC runs.
+ * Process-local desired-state gate for long-running Auto FCC modes.
  *
  * A generation changes only on a real OFF -> ON or ON -> OFF transition.
  * Reasserting an already active request is idempotent. Workers must retain the

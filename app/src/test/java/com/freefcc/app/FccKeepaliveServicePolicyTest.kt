@@ -61,4 +61,68 @@ class FccKeepaliveServicePolicyTest {
         assertEquals(5_000L, FccKeepaliveService.PERIODIC_INTERVAL_MS)
     }
 
+    @Test
+    fun persistedAutoModeSupportsBothSwitchesBeingOff() {
+        assertNull(AutoFccMode.fromPersistedValue(null))
+        assertNull(AutoFccMode.fromPersistedValue("unknown"))
+        assertEquals(
+            AutoFccMode.HOME_POINT_TEXT,
+            AutoFccMode.fromPersistedValue("home_point_text")
+        )
+        assertEquals(
+            AutoFccMode.PERIODIC_5S,
+            AutoFccMode.fromPersistedValue("periodic_5s")
+        )
+    }
+
+    @Test
+    fun enablingOneAutoModeReplacesTheOtherAndActiveModeCanBeDisabled() {
+        assertEquals(
+            AutoFccMode.PERIODIC_5S,
+            AutoFccSelection.updatedMode(
+                AutoFccMode.HOME_POINT_TEXT,
+                AutoFccMode.PERIODIC_5S,
+                enabled = true
+            )
+        )
+        assertNull(
+            AutoFccSelection.updatedMode(
+                AutoFccMode.PERIODIC_5S,
+                AutoFccMode.PERIODIC_5S,
+                enabled = false
+            )
+        )
+    }
+
+    @Test
+    fun homePointSignalsAreDebouncedButRearmForLaterFlightSessions() {
+        assertFalse(
+            HomePointSignalPolicy.shouldAccept(
+                lastGeneration = 7L,
+                lastSignalAtMs = 1_000L,
+                generation = 7L,
+                nowMs = 30_999L,
+                debounceMs = 30_000L
+            )
+        )
+        assertTrue(
+            HomePointSignalPolicy.shouldAccept(
+                lastGeneration = 7L,
+                lastSignalAtMs = 1_000L,
+                generation = 7L,
+                nowMs = 31_000L,
+                debounceMs = 30_000L
+            )
+        )
+        assertTrue(
+            HomePointSignalPolicy.shouldAccept(
+                lastGeneration = 7L,
+                lastSignalAtMs = 30_000L,
+                generation = 8L,
+                nowMs = 30_001L,
+                debounceMs = 30_000L
+            )
+        )
+    }
+
 }

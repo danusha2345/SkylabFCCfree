@@ -120,6 +120,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onStart() {
         super.onStart()
+        viewModel.refreshAutoFccSelection()
         viewModel.refreshLanBridgeBinding()
     }
 
@@ -200,17 +201,9 @@ private fun AppRoot(viewModel: FccViewModel) {
 @Composable
 private fun FccPage(state: AppState, viewModel: FccViewModel) {
     val updateInfo = state.updateInfo
-    val fccPresentation = fccUiPresentation(state.isFccEnabled)
     val context = LocalContext.current
     val startHomePointAuto = {
-        if (!state.isConnected || state.isFccEnabled) {
-            viewModel.connect(
-                launchFlightAppAfterConnect = true,
-                autoMode = AutoFccMode.HOME_POINT_TEXT
-            )
-        } else {
-            viewModel.startKeepalive(AutoFccMode.HOME_POINT_TEXT)
-        }
+        viewModel.setAutoFccMode(AutoFccMode.HOME_POINT_TEXT, true)
     }
     val accessibilitySettingsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult()
@@ -293,76 +286,57 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
             ModeBadge(state)
             Spacer(Modifier.height(6.dp))
 
-            when {
-                state.isBusy -> {
-                    ProgressDisplay(state.busyProgress, state.message)
+            if (state.isBusy) {
+                ProgressDisplay(state.busyProgress, state.message)
+            } else if (state.message.isNotEmpty()) {
+                BodyText(state.message)
+            } else {
+                BodyText("Choose an automatic mode or send one FCC request.")
+            }
+
+            Spacer(Modifier.height(8.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    AutoModeToggle(
+                        text = "Auto FCC — Home Point",
+                        checked = state.selectedAutoMode == AutoFccMode.HOME_POINT_TEXT,
+                        onCheckedChange = { checked ->
+                            if (checked) {
+                                requestHomePointAuto()
+                            } else {
+                                viewModel.setAutoFccMode(AutoFccMode.HOME_POINT_TEXT, false)
+                            }
+                        }
+                    )
+                    AutoModeToggle(
+                        text = "Auto FCC — every 5 sec",
+                        checked = state.selectedAutoMode == AutoFccMode.PERIODIC_5S,
+                        onCheckedChange = { checked ->
+                            viewModel.setAutoFccMode(AutoFccMode.PERIODIC_5S, checked)
+                        }
+                    )
                 }
-                !state.isConnected -> {
-                    if (state.message.isNotEmpty()) {
-                        BodyText(state.message)
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    GlowButton("Auto FCC — Home Point", Cyan, enabled = !state.isHardwareBusy) {
-                        requestHomePointAuto()
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    GlowButton("Auto FCC — every 5 sec", Amber, filled = false, enabled = !state.isHardwareBusy) {
-                        viewModel.connect(
-                            launchFlightAppAfterConnect = true,
-                            autoMode = AutoFccMode.PERIODIC_5S
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    GlowButton("Send FCC Request", Cyan, filled = false, enabled = !state.isHardwareBusy) {
+                Column(
+                    modifier = Modifier.weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    GlowButton(
+                        "Send FCC Request",
+                        Cyan,
+                        filled = false,
+                        enabled = !state.isHardwareBusy
+                    ) {
                         viewModel.enableFcc()
                     }
-                }
-                state.isKeepaliveRunning -> {
-                    BodyText("Auto FCC is active. Manual send is hidden until cancellation.", Amber)
-                    Spacer(Modifier.height(8.dp))
-                    GlowButton("Cancel Auto FCC", Red, filled = false) {
-                        viewModel.stopKeepalive()
-                    }
-                }
-                state.isFccEnabled -> {
-                    BodyText("FCC request was written. RF mode is unknown; verify in DJI Fly.", Amber)
-                    Spacer(Modifier.height(8.dp))
-                    GlowButton("Auto FCC — Home Point", Cyan, enabled = !state.isHardwareBusy) {
-                        requestHomePointAuto()
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    GlowButton("Auto FCC — every 5 sec", Amber, filled = false, enabled = !state.isHardwareBusy) {
-                        viewModel.connect(
-                            launchFlightAppAfterConnect = true,
-                            autoMode = AutoFccMode.PERIODIC_5S
-                        )
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    GlowButton(fccPresentation.primaryActionLabel, Red, enabled = !state.isHardwareBusy) { viewModel.disableFcc() }
-                    Spacer(Modifier.height(8.dp))
-                    GlowButton("Re-Send FCC Request", Cyan, filled = false, enabled = !state.isHardwareBusy) { viewModel.enableFcc() }
-                    Spacer(Modifier.height(8.dp))
-                    GlowButton("Launch DJI Fly", Green, filled = false, enabled = !state.isHardwareBusy) {
+                    GlowButton("Open DJI Fly", Green) {
                         viewModel.launchDjiFly()
                     }
-                }
-                else -> {
-                    if (state.message.isNotEmpty()) {
-                        BodyText(state.message)
-                        Spacer(Modifier.height(8.dp))
-                    } else {
-                        BodyText("Send the FCC request, then verify RF mode in DJI Fly.")
-                        Spacer(Modifier.height(8.dp))
-                    }
-                    GlowButton("Auto FCC — Home Point", Cyan, enabled = !state.isHardwareBusy) {
-                        requestHomePointAuto()
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    GlowButton("Auto FCC — every 5 sec", Amber, filled = false, enabled = !state.isHardwareBusy) {
-                        viewModel.startKeepalive(AutoFccMode.PERIODIC_5S)
-                    }
-                    Spacer(Modifier.height(8.dp))
-                    GlowButton(fccPresentation.primaryActionLabel, Cyan, enabled = !state.isHardwareBusy) { viewModel.enableFcc() }
                 }
             }
 
@@ -1208,6 +1182,52 @@ private fun GlowCard(content: @Composable () -> Unit) {
                 .fillMaxWidth()
         ) {
             content()
+        }
+    }
+}
+
+@Composable
+private fun AutoModeToggle(
+    text: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit
+) {
+    Surface(
+        color = if (checked) Green.copy(alpha = 0.16f) else Color.Transparent,
+        shape = RoundedCornerShape(10.dp),
+        border = BorderStroke(
+            if (checked) 1.5.dp else 1.dp,
+            if (checked) Green else CardBorder
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(46.dp)
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 6.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Switch(
+                checked = checked,
+                onCheckedChange = onCheckedChange,
+                colors = SwitchDefaults.colors(
+                    checkedThumbColor = BgDark,
+                    checkedTrackColor = Green,
+                    checkedBorderColor = Green,
+                    uncheckedThumbColor = TextGray,
+                    uncheckedTrackColor = BgLight,
+                    uncheckedBorderColor = CardBorder
+                ),
+                modifier = Modifier.scale(0.78f)
+            )
+            Text(
+                text,
+                color = if (checked) Green else TextWhite,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                lineHeight = 13.sp,
+                maxLines = 2
+            )
         }
     }
 }

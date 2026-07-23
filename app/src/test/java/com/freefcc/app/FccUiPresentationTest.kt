@@ -11,7 +11,6 @@ class FccUiPresentationTest {
 
         assertEquals("FCC REQUEST SENT", presentation.badgeTitle)
         assertEquals("RF mode unknown — verify in DJI Fly", presentation.detail)
-        assertEquals("Send CE Restore", presentation.primaryActionLabel)
         assertEquals(PhysicalFccState.UNKNOWN, presentation.physicalState)
         assertFalse(presentation.badgeTitle.contains("ENABLED"))
     }
@@ -22,7 +21,6 @@ class FccUiPresentationTest {
 
         assertEquals("RF MODE UNKNOWN", presentation.badgeTitle)
         assertEquals("No write evidence in this app session", presentation.detail)
-        assertEquals("Send FCC Request", presentation.primaryActionLabel)
         assertEquals(PhysicalFccState.UNKNOWN, presentation.physicalState)
         assertFalse(presentation.badgeTitle.contains("DEFAULT"))
         assertFalse(presentation.badgeTitle.contains("CE"))

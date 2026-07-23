@@ -31,7 +31,8 @@ private data class DjiFlyPhraseCatalog(
 
 /**
  * Reads text emitted by the original DJI Fly app. The accessibility service
- * never opens DUML itself; an armed Home Point match signals Auto FCC once.
+ * never opens DUML itself; Home Point matches signal the continuously armed
+ * Auto FCC service, which debounces duplicate UI events.
  */
 class DjiFlyAccessibilityService : AccessibilityService() {
 

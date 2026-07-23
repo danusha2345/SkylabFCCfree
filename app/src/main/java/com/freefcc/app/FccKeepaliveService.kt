@@ -26,6 +26,9 @@ enum class AutoFccMode(val wireValue: String) {
     companion object {
         fun fromWireValue(value: String?): AutoFccMode =
             entries.firstOrNull { it.wireValue == value } ?: HOME_POINT_TEXT
+
+        fun fromPersistedValue(value: String?): AutoFccMode? =
+            entries.firstOrNull { it.wireValue == value }
     }
 }
 
@@ -49,11 +52,23 @@ internal object BootstrapRetryPolicy {
         result == BootstrapApplyResult.PRE_WRITE_CONNECT_FAILED
 }
 
+internal object HomePointSignalPolicy {
+    fun shouldAccept(
+        lastGeneration: Long?,
+        lastSignalAtMs: Long,
+        generation: Long,
+        nowMs: Long,
+        debounceMs: Long
+    ): Boolean =
+        lastGeneration != generation || nowMs - lastSignalAtMs >= debounceMs
+}
+
 /**
- * Foreground Auto FCC service. Home Point mode waits for original DJI Fly
- * accessibility text without opening DUML, applies the complete profile once,
- * then stops. Periodic mode applies the complete profile once and then sends
- * the original four-frame keepalive every five seconds until cancellation.
+ * Foreground Auto FCC service. Home Point mode keeps waiting for original DJI
+ * Fly accessibility text and applies the complete profile after every new
+ * flight-session Home Point event. Periodic mode applies the complete profile
+ * once and then sends the original four-frame keepalive every five seconds.
+ * Both modes remain active until the user turns their switch off.
  */
 class FccKeepaliveService : Service() {
 
@@ -65,12 +80,14 @@ class FccKeepaliveService : Service() {
         private const val EXTRA_REQUEST_GENERATION = "request_generation"
         private const val EXTRA_AUTO_MODE = "auto_mode"
         internal const val PERIODIC_INTERVAL_MS = 5_000L
+        internal const val HOME_POINT_DEBOUNCE_MS = 30_000L
         private const val APPLY_CONNECT_RETRY_DELAY_MS = 5_000L
         private const val PREFS_NAME = "freefcc"
         private const val PREF_KEEPALIVE = "keepalive_running"
         private val requestGate = AutoFccRequestGate()
         private val homePointDetections = Channel<Long>(Channel.CONFLATED)
         private var lastSignaledGeneration: Long? = null
+        private var lastHomePointSignalAtMs = 0L
         private var activeMode = AutoFccMode.HOME_POINT_TEXT
 
         @Synchronized
@@ -100,6 +117,30 @@ class FccKeepaliveService : Service() {
             return !hadPersistentRequest
         }
 
+        fun startSelectedMode(context: Context): Boolean =
+            try {
+                val mode = AutoFccSelection.load(context)
+                if (mode == null) {
+                    false
+                } else if (
+                    mode == AutoFccMode.HOME_POINT_TEXT &&
+                    !isDjiFlyTextAccessEnabled(context)
+                ) {
+                    FccViewModel.logServiceEvent(
+                        "AUTO FCC STARTUP: Home Point mode selected, but Accessibility is disabled"
+                    )
+                    false
+                } else {
+                    start(context, mode)
+                    true
+                }
+            } catch (e: Exception) {
+                FccViewModel.logServiceEvent(
+                    "AUTO FCC STARTUP: ${e.javaClass.simpleName}: ${e.message}"
+                )
+                false
+            }
+
         internal fun isDjiFlyTextAccessEnabled(context: Context): Boolean {
             val expected = ComponentName(context, DjiFlyAccessibilityService::class.java)
             val enabled = Settings.Secure.getString(
@@ -115,19 +156,33 @@ class FccKeepaliveService : Service() {
         internal fun notifyHomePointDetected(): Boolean {
             if (activeMode != AutoFccMode.HOME_POINT_TEXT) return false
             val generation = requestGate.currentDeliveredGeneration() ?: return false
-            if (lastSignaledGeneration == generation) return false
+            val now = System.currentTimeMillis()
+            if (!HomePointSignalPolicy.shouldAccept(
+                    lastGeneration = lastSignaledGeneration,
+                    lastSignalAtMs = lastHomePointSignalAtMs,
+                    generation = generation,
+                    nowMs = now,
+                    debounceMs = HOME_POINT_DEBOUNCE_MS
+                )
+            ) {
+                return false
+            }
             if (!homePointDetections.trySend(generation).isSuccess) return false
             lastSignaledGeneration = generation
+            lastHomePointSignalAtMs = now
             return true
         }
 
         @Synchronized
-        fun stop(context: Context) {
+        fun stop(context: Context, clearSelection: Boolean = true) {
             // Set this before posting ACTION_STOP. The service intent is
             // asynchronous, while disableFcc() must prevent another keepalive
             // write immediately after its hardware lease is released.
             requestGate.cancel()
+            lastSignaledGeneration = null
+            lastHomePointSignalAtMs = 0L
             FccRuntime.tracker.serviceStopped()
+            if (clearSelection) AutoFccSelection.save(context, null)
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit().putBoolean(PREF_KEEPALIVE, false).apply()
             val intent = Intent(context, FccKeepaliveService::class.java).apply {
@@ -145,7 +200,7 @@ class FccKeepaliveService : Service() {
             FccRuntime.tracker.serviceStopped()
         }
 
-        /** Returns whether the explicit one-shot request is currently marked in flight. */
+        /** Returns whether an explicit Auto FCC request is currently marked active. */
         fun isRunningFlagSet(context: Context): Boolean =
             context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .getBoolean(PREF_KEEPALIVE, false)
@@ -292,35 +347,6 @@ class FccKeepaliveService : Service() {
         val worker = scope.launch(start = CoroutineStart.LAZY) {
             if (cachedBootstrapProfile == null) return@launch
             FccRuntime.tracker.serviceRunning()
-            val homePointObservedAtMs = when (mode) {
-                AutoFccMode.HOME_POINT_TEXT -> {
-                    FccViewModel.logServiceEvent(
-                        "DJI FLY TEXT FCC: armed; waiting without DUML reads or periodic writes"
-                    )
-                    var observedAt: Long? = null
-                    while (requestGate.isCurrent(generation) && observedAt == null) {
-                        val detectedGeneration = homePointDetections.receive()
-                        if (detectedGeneration == generation) {
-                            observedAt = System.currentTimeMillis()
-                        }
-                    }
-                    observedAt
-                }
-                AutoFccMode.PERIODIC_5S -> {
-                    FccViewModel.logServiceEvent(
-                        "PERIODIC FCC: starting full profile, then legacy keepalive every 5s"
-                    )
-                    null
-                }
-            }
-            if (!requestGate.isCurrent(generation)) return@launch
-
-            val pinnedPort = FccRuntime.tracker.state.value.controllerPort
-            if (pinnedPort == null) {
-                finishAutoRun(generation, false, "Auto FCC has no pinned Connect port")
-                return@launch
-            }
-
             val bootstrapProfile = try {
                 Profiles.load(this@FccKeepaliveService, "fcc.json")
             } catch (e: Exception) {
@@ -328,30 +354,57 @@ class FccKeepaliveService : Service() {
                 return@launch
             }
 
-            val bootstrapLabel = if (mode == AutoFccMode.HOME_POINT_TEXT) {
-                "DJI FLY TEXT FCC"
-            } else {
-                "PERIODIC FCC bootstrap"
-            }
             if (mode == AutoFccMode.HOME_POINT_TEXT) {
                 FccViewModel.logServiceEvent(
-                    "DJI FLY TEXT FCC: Home Point text detected; applying full profile"
+                    "DJI FLY TEXT FCC: armed continuously; waiting for Home Point events"
                 )
+                while (requestGate.isCurrent(generation)) {
+                    var homePointObservedAtMs: Long? = null
+                    while (requestGate.isCurrent(generation) && homePointObservedAtMs == null) {
+                        val detectedGeneration = homePointDetections.receive()
+                        if (detectedGeneration == generation) {
+                            homePointObservedAtMs = System.currentTimeMillis()
+                        }
+                    }
+                    if (!requestGate.isCurrent(generation)) return@launch
+
+                    val pinnedPort = awaitControllerPort(generation) ?: return@launch
+                    FccViewModel.logServiceEvent(
+                        "DJI FLY TEXT FCC: Home Point detected; applying full profile"
+                    )
+                    val report = applyWithPreWriteRetry(
+                        profile = bootstrapProfile,
+                        generation = generation,
+                        pinnedPort = pinnedPort,
+                        label = "DJI FLY TEXT FCC",
+                        homePointObservedAtMs = homePointObservedAtMs
+                    ) ?: return@launch
+                    when (report.result) {
+                        BootstrapApplyResult.SUCCESS -> FccViewModel.logServiceEvent(
+                            "DJI FLY TEXT FCC: apply complete; re-armed for the next flight session"
+                        )
+                        BootstrapApplyResult.CANCELLED -> return@launch
+                        else -> FccViewModel.logServiceEvent(
+                            "DJI FLY TEXT FCC: apply failed; waiting for the next Home Point event"
+                        )
+                    }
+                }
+                return@launch
             }
+
+            FccViewModel.logServiceEvent(
+                "PERIODIC FCC: starting full profile, then legacy keepalive every 5s"
+            )
+            val pinnedPort = awaitControllerPort(generation) ?: return@launch
             val bootstrapReport = applyWithPreWriteRetry(
                 profile = bootstrapProfile,
                 generation = generation,
                 pinnedPort = pinnedPort,
-                label = bootstrapLabel,
-                homePointObservedAtMs = homePointObservedAtMs
+                label = "PERIODIC FCC bootstrap",
+                homePointObservedAtMs = null
             ) ?: return@launch
             if (bootstrapReport.result != BootstrapApplyResult.SUCCESS) {
-                finishAutoRun(generation, false, "$bootstrapLabel failed")
-                return@launch
-            }
-
-            if (mode == AutoFccMode.HOME_POINT_TEXT) {
-                finishAutoRun(generation, true, null)
+                finishAutoRun(generation, false, "PERIODIC FCC bootstrap failed")
                 return@launch
             }
 
@@ -388,6 +441,33 @@ class FccKeepaliveService : Service() {
             }
         }
         worker.start()
+    }
+
+    private suspend fun awaitControllerPort(generation: Long): Int? {
+        FccRuntime.tracker.state.value.controllerPort?.let { return it }
+        while (requestGate.isCurrent(generation)) {
+            val hardwareLease = HardwareLock.tryBegin()
+            if (hardwareLease == null) {
+                delay(200)
+                continue
+            }
+            val connected = try {
+                transport.connect()
+            } finally {
+                hardwareLease.close()
+            }
+            if (connected) {
+                val port = transport.getDetectedPort().takeIf { it > 0 } ?: DumlTransport.PORT
+                FccRuntime.tracker.beginHardwareSession(port)
+                FccViewModel.logServiceEvent("AUTO FCC: controller connected on port $port")
+                return port
+            }
+            FccViewModel.logServiceEvent(
+                "AUTO FCC: controller unavailable; retrying in ${APPLY_CONNECT_RETRY_DELAY_MS / 1_000}s"
+            )
+            delay(APPLY_CONNECT_RETRY_DELAY_MS)
+        }
+        return null
     }
 
     private suspend fun applyWithPreWriteRetry(
@@ -590,13 +670,6 @@ class FccKeepaliveService : Service() {
             this, 0, openIntent,
             android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
         )
-        val stopIntent = Intent(this, FccKeepaliveService::class.java).apply {
-            action = ACTION_STOP
-        }
-        val stopPendingIntent = android.app.PendingIntent.getService(
-            this, 1, stopIntent,
-            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
-        )
         return builder
             .setContentTitle("SkylabFCCfree")
             .setContentText(
@@ -609,16 +682,6 @@ class FccKeepaliveService : Service() {
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setOngoing(true)
             .setContentIntent(pendingIntent)
-            .addAction(
-                Notification.Action.Builder(
-                    android.graphics.drawable.Icon.createWithResource(
-                        this,
-                        android.R.drawable.ic_menu_close_clear_cancel
-                    ),
-                    "Cancel Auto FCC",
-                    stopPendingIntent
-                ).build()
-            )
             .build()
     }
 

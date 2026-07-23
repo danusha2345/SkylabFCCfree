@@ -65,6 +65,7 @@ data class AppState(
     val updateChecked: Boolean = false,
     // Keepalive state
     val isKeepaliveRunning: Boolean = false,
+    val selectedAutoMode: AutoFccMode? = null,
     // Opt-in LAN diagnostic bridge state
     val isLanLogStarting: Boolean = false,
     val lanLogUrl: String = "",
@@ -226,9 +227,11 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 val hasWriteEvidence = runtime.lastSuccessfulWriteAtMs != null
                 val keepaliveActive = runtime.keepaliveStatus == KeepaliveRuntimeStatus.STARTING ||
                     runtime.keepaliveStatus == KeepaliveRuntimeStatus.RUNNING
+                val connected = runtime.controllerSessionEstablished
                 update {
                     copy(
                         isKeepaliveRunning = keepaliveActive,
+                        isConnected = connected,
                         isFccEnabled = hasWriteEvidence,
                         fccLastWriteAtMs = runtime.lastSuccessfulWriteAtMs,
                         message = when {
@@ -241,7 +244,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         },
                         status = resolveFccRuntimeStatus(
                             currentStatus = status,
-                            isConnected = isConnected,
+                            isConnected = connected,
                             keepaliveStatus = runtime.keepaliveStatus,
                             hasWriteEvidence = hasWriteEvidence
                         )
@@ -362,6 +365,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         if (initialized) return
         initialized = true
         val model = try { Build.DEVICE } catch (_: Exception) { "unknown" }
+        val selectedAutoMode = AutoFccSelection.load(app)
         prefs.edit().remove("auto_fcc").apply()
         // v1.5.12 and earlier persisted a write as if it were current FCC
         // state. Ignore and remove that stale cross-process evidence.
@@ -388,6 +392,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 status = restoredStatus,
                 isConnected = connected,
                 isKeepaliveRunning = liveMonitor,
+                selectedAutoMode = selectedAutoMode,
                 isFccEnabled = runtime.lastSuccessfulWriteAtMs != null,
                 fccLastWriteAtMs = runtime.lastSuccessfulWriteAtMs,
                 message = when {
@@ -408,6 +413,19 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
         if (liveMonitor) {
             log("Existing Auto FCC run retained")
+        } else if (selectedAutoMode != null) {
+            if (FccKeepaliveService.startSelectedMode(app)) {
+                log("Restored selected Auto FCC mode: ${selectedAutoMode.wireValue}")
+            } else if (
+                selectedAutoMode == AutoFccMode.HOME_POINT_TEXT &&
+                !FccKeepaliveService.isDjiFlyTextAccessEnabled(app)
+            ) {
+                update {
+                    copy(
+                        message = "Enable SkylabFCCfree Home Point Test in Accessibility settings."
+                    )
+                }
+            }
         }
 
         checkForUpdates()
@@ -469,10 +487,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
      * Connects to the DUML proxy, auto-detecting the correct port.
      * Probes for the aircraft serial number after connecting.
      */
-    fun connect(
-        launchFlightAppAfterConnect: Boolean = false,
-        autoMode: AutoFccMode = AutoFccMode.HOME_POINT_TEXT
-    ): Boolean {
+    fun connect(autoMode: AutoFccMode? = null): Boolean {
         val hardwareLease = beginHardwareOp()
         if (hardwareLease == null) {
             log("Hardware busy — please wait for the current operation to finish.")
@@ -541,9 +556,9 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         copy(
                             status = "connected",
                             message = if (serial.isNotEmpty()) {
-                                "Connected — $serial. Starting Auto FCC..."
+                                "Connected — $serial"
                             } else {
-                                "Connected — starting Auto FCC..."
+                                "Connected"
                             },
                             isConnected = true
                         )
@@ -564,7 +579,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 portLease?.let(Port40007Lock::releaseFromLed)
                 hardwareLease.close()
             }
-            if (connected) {
+            if (connected && autoMode != null) {
                 if (startKeepalive(autoMode)) {
                     log(
                         if (autoMode == AutoFccMode.HOME_POINT_TEXT) {
@@ -573,9 +588,6 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                             "Connect completed — periodic FCC mode started (5s)"
                         }
                     )
-                    if (launchFlightAppAfterConnect) {
-                        launchDjiFly()
-                    }
                 }
             }
         }
@@ -763,18 +775,9 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     // --- Auto FCC foreground modes ---
 
     /**
-     * Starts either the one-shot DJI Fly text mode or the legacy periodic mode.
+     * Starts either the continuous DJI Fly text mode or the legacy periodic mode.
      */
     fun startKeepalive(mode: AutoFccMode = AutoFccMode.HOME_POINT_TEXT): Boolean {
-        if (!_state.value.isConnected) {
-            log("Connect to the controller before starting Auto FCC")
-            update { copy(status = "disconnected", message = "Connect to the controller first.") }
-            return false
-        }
-        if (_state.value.isKeepaliveRunning) {
-            log("Auto FCC already running")
-            return true
-        }
         return try {
             FccKeepaliveService.start(app, mode)
             log(
@@ -797,8 +800,46 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
 
+    fun setAutoFccMode(mode: AutoFccMode, enabled: Boolean): Boolean {
+        val currentMode = AutoFccSelection.load(app)
+        val nextMode = AutoFccSelection.updatedMode(currentMode, mode, enabled)
+        if (nextMode == currentMode && !enabled) return true
+        if (
+            nextMode == AutoFccMode.HOME_POINT_TEXT &&
+            !FccKeepaliveService.isDjiFlyTextAccessEnabled(app)
+        ) {
+            return false
+        }
+
+        if (currentMode != null && currentMode != nextMode) {
+            FccKeepaliveService.stop(app, clearSelection = false)
+        }
+        AutoFccSelection.save(app, nextMode)
+        update { copy(selectedAutoMode = nextMode) }
+
+        if (nextMode == null) {
+            if (currentMode == null) FccKeepaliveService.stop(app)
+            log("Auto FCC selection cleared")
+            return true
+        }
+        val started = startKeepalive(nextMode)
+        if (started) {
+            log("Selected Auto FCC mode: ${nextMode.wireValue}")
+        }
+        return started
+    }
+
+    fun refreshAutoFccSelection() {
+        val selected = AutoFccSelection.load(app)
+        if (_state.value.selectedAutoMode != selected) {
+            update { copy(selectedAutoMode = selected) }
+        }
+    }
+
     /** Stops either foreground Auto FCC mode. */
     fun stopKeepalive() {
+        AutoFccSelection.save(app, null)
+        update { copy(selectedAutoMode = null) }
         FccKeepaliveService.stop(app)
         log("Auto FCC stopped")
     }
@@ -1296,7 +1337,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
      * 2 bursts of 5 writes (10 total), matching the reference app's pattern.
      *
      * **Does NOT hold HardwareLock.** LED uses a dedicated process-wide port
-     * 40007 lease, so it cannot overlap the one-shot Home Point listener.
+     * 40007 lease and Auto FCC profile writes use the shared hardware lock.
      *
      * @param on true for LED ON, false for LED OFF
      */
