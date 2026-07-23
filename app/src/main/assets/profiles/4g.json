@@ -1,6 +1,6 @@
 {
   "name": "4G Activation",
-  "description": "Enables 4G transmission on the aircraft. 128 frames with the aircraft serial embedded in each payload. Sent in a single round with 10ms between frames.",
+  "description": "Experimental/internal 0x51 command-ID sweep: 128 fire-and-forget frames with the aircraft serial embedded in each payload. Write completion does not prove 4G activation.",
   "sender": 2,
   "sender_desc": "CAMERA, index 0",
   "cmd_type": 0,
@@ -16,5 +16,5 @@
   "dst_desc": "OFDM_GROUND, index 7",
   "payload_prefix_hex": "000000",
   "payload_serial_encoding": "ascii",
-  "note": "Each frame's payload is: 3 zero bytes + ASCII aircraft serial. Frame i has cmd_id=i (0..127). The serial is read from the controller at runtime via probeSerial()."
+  "note": "Each payload is 3 zero bytes + ASCII aircraft serial; frame i uses cmd_id=i (0..127). The serial is read at runtime via probeSerial(). There is no ACK/readback, and per-ID meanings are not decoded."
 }

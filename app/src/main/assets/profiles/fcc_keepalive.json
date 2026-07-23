@@ -1,6 +1,6 @@
 {
   "name": "Legacy FCC Keepalive",
-  "description": "Original upstream four-frame FCC keepalive. Used only by the explicit five-second periodic Auto FCC mode after one complete profile apply.",
+  "description": "Original upstream four-frame periodic sequence. Used only by explicit five-second Auto FCC mode after one complete profile apply; the exact necessity and semantics of these four requests are unverified.",
   "sender": 130,
   "sender_desc": "MOBILE_APP, index 4",
   "cmd_type": 32,
@@ -10,9 +10,9 @@
   "inter_round_delay_ms": 0,
   "read_window_ms": 50,
   "frames": [
-    { "s": 16, "i": 88,  "d": 18,  "p": "030100",             "note": "AUTOTEST enter service mode" },
-    { "s": 6,  "i": 114, "d": 6,   "p": "00000000000100",     "note": "RADIO set region to FCC (01)" },
-    { "s": 6,  "i": 114, "d": 6,   "p": "000000000001ff",     "note": "RADIO commit region change" },
-    { "s": 16, "i": 88,  "d": 18,  "p": "030100",             "note": "AUTOTEST exit service mode" }
+    { "s": 16, "i": 88,  "d": 18,  "p": "030100",             "note": "Opaque 10:58 request; identical to the final request" },
+    { "s": 6,  "i": 114, "d": 6,   "p": "00000000000100",     "note": "Opaque 06:72 radio request; exact parameter semantics are unverified" },
+    { "s": 6,  "i": 114, "d": 6,   "p": "000000000001ff",     "note": "Opaque 06:72 radio request; commit interpretation is unverified" },
+    { "s": 16, "i": 88,  "d": 18,  "p": "030100",             "note": "Opaque 10:58 request; identical to the initial request" }
   ]
 }

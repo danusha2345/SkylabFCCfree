@@ -235,9 +235,9 @@ GPS uses the model-independent hash `0xC5429582` for `g_config.gps_cfg.gps_enabl
 
 ### FCC Profile
 
-21 frames sent in 2 rounds with 30ms between frames and 100ms between rounds. The sequence enters service mode, sets the radio region to FCC, writes channel groups and power limits, commits the change, and exits service mode. The same 21 frames work on every DJI aircraft model tested (Mini 5 Pro, Mini 4 Pro, Mavic 4 Pro, Air 3S, Neo, Avata 360). All requested writes must now complete before the UI reports that the sequence was sent. The proxy cannot confirm the resulting RF region, so verify the Transmission graph in DJI Fly. Pressing Back moves SkylabFCCfree to the background instead of destroying its Activity; Android process death still requires a new **Auto FCC** Connect.
+The legacy composite contains 21 frames sent in 2 rounds with 30ms between frames and 100ms between rounds. It produced an FCC result on tested Mini 5 Pro, Mini 4 Pro, Mavic 4 Pro, Air 3S, Neo, and Avata 360 hardware, but the necessity and universality of every individual frame are not proven. The directly identified FCC primitive is the first `09:27` SDR register write (`setForceFcc`); country/area writes, opaque requests, and an unrelated `max_height=500` side-effect are also present. All requested writes must complete before the UI reports that the sequence was sent, but the proxy cannot confirm the resulting RF region. Verify the Transmission graph in DJI Fly. Pressing Back moves SkylabFCCfree to the background instead of destroying its Activity; Android process death still requires a new **Auto FCC** Connect. See the [DUML command audit](docs/DUML_COMMAND_AUDIT.md) for the evidence level of every frame and the [RM510 command reference](docs/RM510_DUML_COMMAND_REFERENCE.md) for commands recovered from controller binaries.
 
-The CE/default-region action is experimental. It writes the existing single-frame `ce_restore.json` profile, stops keepalive first, and reports only that the command was sent. Its effect must also be verified in DJI Fly.
+The CE/default-region action is experimental. It sends one opaque `06:72` request to destination `0x20`, stops keepalive first, and reports only write completion. Its interpretation as CE or factory-region restore is unverified and must be checked in DJI Fly.
 
 ### 4G Profile
 
@@ -252,7 +252,7 @@ Unlike FCC which goes through the standard DUML TCP proxy on port 40009, 4G fram
 The frame format is:
 - `sender = 2` (CAMERA)
 - `cmd_type = 0` (Request, NO_ACK_NEEDED, no encryption)
-- `cmd_set = 81` (0x51, 4G command set)
+- `cmd_set = 81` (0x51, experimental/internal command set in this profile)
 - `cmd_id = 0..127` (sequential, one per frame)
 - `dst = 238` (0xEE, OFDM_GROUND index 7)
 - `payload = 000000 + ASCII(aircraft_serial)`
@@ -285,15 +285,15 @@ Profiles are JSON files in `app/src/main/assets/profiles/`. Each frame looks lik
 
 | Field | Meaning |
 |-------|---------|
-| `s` | Command set (16 = service mode, 6 = radio, 3 = flight controller) |
+| `s` | Numeric command-set value; a subsystem name is used only where static/live evidence supports it |
 | `i` | Command ID within the set |
 | `d` | Destination device |
 | `p` | Payload as hex string (sent as raw bytes, no transformation) |
-| `note` | Plain English description of what the frame does |
+| `note` | Evidence-bounded description; `unknown` means the exact payload semantics are not yet decoded |
 
 You can open these files in any text editor, read every byte that gets sent, and modify them if you want.
 
-### How the Frames Were Obtained
+### Profile provenance
 
 The DUML proxy on DJI controllers listens on `127.0.0.1:40009` and accepts plain unencrypted TCP connections. The command frames were identified by capturing loopback traffic on the controller while the radio was active, then extracting the `0x55`-prefixed DUML packets from the capture:
 
@@ -301,17 +301,17 @@ The DUML proxy on DJI controllers listens on `127.0.0.1:40009` and accepts plain
 tcpdump -i lo -w /sdcard/capture.pcap port 40009
 ```
 
-The frames are plaintext on the local socket with no encryption. Once captured, the payloads were decoded using the publicly documented command set and device type enums from the [dji-firmware-tools](https://github.com/o-gs/dji-firmware-tools) project (GPL-3.0). This project's `DumlBuilder` class implements the same CRC-8 (polynomial 0x8C reflected, init 0x77) and CRC-16 (polynomial 0x8408 reflected of 0x1021, init 0x3692) as the reference implementation to build valid frames from the decoded command definitions. The wire layout is: `[0]=0x55 magic, [1-2]=length, [3]=CRC-8, [4]=sender, [5]=dst, [6-7]=seq, [8]=cmdType, [9]=cmdSet, [10]=cmdId, [11..N]=payload, [N+1..N+2]=CRC-16`.
+Profiles combine historical/upstream captures with commands verified during current RC2 work. A plausible legacy label is not treated as proof: the [DUML command audit](docs/DUML_COMMAND_AUDIT.md) records which meanings are confirmed, inferred, observed, or still unknown. The frames are plaintext on the local socket with no encryption. This project's `DumlBuilder` class implements the same CRC-8 (polynomial 0x8C reflected, init 0x77) and CRC-16 (polynomial 0x8408 reflected of 0x1021, init 0x3692) as the [dji-firmware-tools](https://github.com/o-gs/dji-firmware-tools) reference implementation. The wire layout is: `[0]=0x55 magic, [1-2]=length, [3]=CRC-8, [4]=sender, [5]=dst, [6-7]=seq, [8]=cmdType, [9]=cmdSet, [10]=cmdId, [11..N]=payload, [N+1..N+2]=CRC-16`.
 
 ## Project Structure
 
 ```
 app/src/main/
   assets/profiles/
-    fcc.json          21 frames, FCC unlock
-    fcc_keepalive.json original 4-frame profile used by five-second Auto FCC
-    ce_restore.json    1 experimental default-region request
-    4g.json           128 frames, 4G activation
+    fcc.json          legacy 21-frame FCC composite
+    fcc_keepalive.json original opaque 4-frame sequence used by five-second Auto FCC
+    ce_restore.json    1 opaque experimental 06:72 request
+    4g.json           experimental 128-frame 0x51 serial sweep
     device_info.json   1 frame, version inquiry
     led_on.json        1 frame, LED on (port 40007)
     led_off.json       1 frame, LED off (port 40007)

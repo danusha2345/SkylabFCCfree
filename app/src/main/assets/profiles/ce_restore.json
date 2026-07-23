@@ -1,6 +1,6 @@
 {
   "name": "CE Restore",
-  "description": "Experimental request believed to restore the factory-flashed region. No readback confirms the resulting region; verify in DJI Fly.",
+  "description": "Experimental single 06:72 request. Its exact parameter and physical effect are unverified; no readback proves that it restores CE or a factory region.",
   "sender": 130,
   "sender_desc": "MOBILE_APP, index 4",
   "cmd_type": 6,
@@ -10,6 +10,6 @@
   "inter_round_delay_ms": 0,
   "read_window_ms": 80,
   "frames": [
-    { "s": 6, "i": 114, "d": 32, "p": "00000000000100", "note": "Experimental RADIO default-region request (dst=ANY idx 1); hardware result unverified" }
+    { "s": 6, "i": 114, "d": 32, "p": "00000000000100", "note": "Opaque 06:72 request to destination 0x20; CE/default-region interpretation and hardware result are unverified" }
   ]
 }
