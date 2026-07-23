@@ -37,14 +37,7 @@ class AppForegroundService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "SkylabFCCfree status",
-            NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            description = "Shows that SkylabFCCfree is running"
-        }
-        getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
+        AppForegroundNotification.createChannel(this)
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -93,32 +86,56 @@ class AppForegroundService : Service() {
         }
     }
 
-    private fun createNotification(): Notification {
-        val selectedMode = AutoFccSelection.load(this)
-        val accessibilityEnabled = FccKeepaliveService.isDjiFlyTextAccessEnabled(this)
-        val openIntent = Intent(this, MainActivity::class.java).apply {
+    private fun createNotification(): Notification =
+        AppForegroundNotification.create(this)
+
+    override fun onBind(intent: Intent?): IBinder? = null
+}
+
+internal object AppForegroundNotification {
+    fun createChannel(context: Context) {
+        val channel = NotificationChannel(
+            AppForegroundService.CHANNEL_ID,
+            "SkylabFCCfree status",
+            NotificationManager.IMPORTANCE_LOW
+        ).apply {
+            description = "Shows that SkylabFCCfree is running"
+        }
+        context.getSystemService(NotificationManager::class.java)
+            .createNotificationChannel(channel)
+    }
+
+    fun create(context: Context): Notification {
+        val selectedMode = AutoFccSelection.load(context)
+        val accessibilityEnabled = FccKeepaliveService.isDjiFlyTextAccessEnabled(context)
+        val openIntent = Intent(context, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val openPendingIntent = PendingIntent.getActivity(
-            this,
+            context,
             0,
             openIntent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         val homePointPendingIntent = if (accessibilityEnabled) {
-            serviceActionPendingIntent(ACTION_SELECT_HOME_POINT, requestCode = 1)
+            serviceActionPendingIntent(
+                context,
+                AppForegroundService.ACTION_SELECT_HOME_POINT,
+                requestCode = 1
+            )
         } else {
             PendingIntent.getActivity(
-                this,
+                context,
                 1,
-                Intent(this, MainActivity::class.java).apply {
-                    action = ACTION_SELECT_HOME_POINT
+                Intent(context, MainActivity::class.java).apply {
+                    action = AppForegroundService.ACTION_SELECT_HOME_POINT
                     flags = Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
                 },
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
             )
         }
         val homePointAction = notificationAction(
+            context = context,
             pendingIntent = homePointPendingIntent,
             icon = android.R.drawable.ic_menu_mylocation,
             label = if (selectedMode == AutoFccMode.HOME_POINT_TEXT) {
@@ -128,8 +145,10 @@ class AppForegroundService : Service() {
             }
         )
         val periodicAction = notificationAction(
+            context = context,
             pendingIntent = serviceActionPendingIntent(
-                ACTION_SELECT_PERIODIC,
+                context,
+                AppForegroundService.ACTION_SELECT_PERIODIC,
                 requestCode = 2
             ),
             icon = android.R.drawable.ic_popup_sync,
@@ -140,11 +159,16 @@ class AppForegroundService : Service() {
             }
         )
         val offAction = notificationAction(
-            pendingIntent = serviceActionPendingIntent(ACTION_SELECT_OFF, requestCode = 3),
+            context = context,
+            pendingIntent = serviceActionPendingIntent(
+                context,
+                AppForegroundService.ACTION_SELECT_OFF,
+                requestCode = 3
+            ),
             icon = android.R.drawable.ic_menu_close_clear_cancel,
             label = if (selectedMode == null) "✓ Off" else "Off"
         )
-        return Notification.Builder(this, CHANNEL_ID)
+        return Notification.Builder(context, AppForegroundService.CHANNEL_ID)
             .setContentTitle("SkylabFCCfree")
             .setContentText(
                 AppNotificationActionPolicy.statusText(selectedMode, accessibilityEnabled)
@@ -163,30 +187,33 @@ class AppForegroundService : Service() {
     }
 
     private fun notificationAction(
+        context: Context,
         pendingIntent: PendingIntent,
         icon: Int,
         label: String
     ): Notification.Action {
         return Notification.Action.Builder(
-            android.graphics.drawable.Icon.createWithResource(this, icon),
+            android.graphics.drawable.Icon.createWithResource(context, icon),
             label,
             pendingIntent
         ).build()
     }
 
-    private fun serviceActionPendingIntent(action: String, requestCode: Int): PendingIntent {
-        val intent = Intent(this, AppForegroundService::class.java).apply {
+    private fun serviceActionPendingIntent(
+        context: Context,
+        action: String,
+        requestCode: Int
+    ): PendingIntent {
+        val intent = Intent(context, AppForegroundService::class.java).apply {
             this.action = action
         }
         return PendingIntent.getService(
-            this,
+            context,
             requestCode,
             intent,
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
     }
-
-    override fun onBind(intent: Intent?): IBinder? = null
 }
 
 internal object AppNotificationActionPolicy {

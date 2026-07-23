@@ -1,8 +1,5 @@
 package com.freefcc.app
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
 import android.app.Service
 import android.content.ComponentName
 import android.content.Context
@@ -73,8 +70,8 @@ internal object HomePointSignalPolicy {
 class FccKeepaliveService : Service() {
 
     companion object {
-        const val CHANNEL_ID = "fcc_keepalive"
-        const val NOTIFICATION_ID = 9012
+        const val CHANNEL_ID = AppForegroundService.CHANNEL_ID
+        const val NOTIFICATION_ID = AppForegroundService.NOTIFICATION_ID
         const val ACTION_START = "com.freefcc.app.START_KEEPALIVE"
         const val ACTION_STOP = "com.freefcc.app.STOP_KEEPALIVE"
         private const val EXTRA_REQUEST_GENERATION = "request_generation"
@@ -226,7 +223,7 @@ class FccKeepaliveService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        createNotificationChannel()
+        AppForegroundNotification.createChannel(this)
         runCatching {
             cachedBootstrapProfile = Profiles.load(this, "fcc.json")
         }
@@ -238,9 +235,7 @@ class FccKeepaliveService : Service() {
         if (requiresImmediateForeground(intent?.action)) {
             startForeground(
                 NOTIFICATION_ID,
-                createNotification(
-                    AutoFccMode.fromWireValue(intent?.getStringExtra(EXTRA_AUTO_MODE))
-                )
+                AppForegroundNotification.create(this)
             )
         }
         return synchronized(Companion) {
@@ -257,7 +252,7 @@ class FccKeepaliveService : Service() {
             getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit().putBoolean(PREF_KEEPALIVE, false).apply()
             FccRuntime.tracker.serviceStopped()
-            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopForeground(STOP_FOREGROUND_DETACH)
             stopSelfResult(startId)
             return START_NOT_STICKY
         }
@@ -274,7 +269,7 @@ class FccKeepaliveService : Service() {
                     return START_NOT_STICKY
                 }
                 keepaliveJob?.cancel()
-                stopForeground(STOP_FOREGROUND_REMOVE)
+                stopForeground(STOP_FOREGROUND_DETACH)
                 FccRuntime.tracker.serviceStopped()
                 stopSelfResult(startId)
                 return START_NOT_STICKY
@@ -300,7 +295,7 @@ class FccKeepaliveService : Service() {
                         keepaliveJob?.cancel()
                         getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                             .edit().putBoolean(PREF_KEEPALIVE, false).apply()
-                        stopForeground(STOP_FOREGROUND_REMOVE)
+                        stopForeground(STOP_FOREGROUND_DETACH)
                         FccRuntime.tracker.serviceStopped()
                         stopSelfResult(startId)
                         return START_NOT_STICKY
@@ -311,13 +306,13 @@ class FccKeepaliveService : Service() {
                     getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                         .edit().putBoolean(PREF_KEEPALIVE, false).apply()
                     FccRuntime.tracker.serviceStopped()
-                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopForeground(STOP_FOREGROUND_DETACH)
                     stopSelfResult(startId)
                     return START_NOT_STICKY
                 }
                 if (requestGate.currentGeneration() == null) {
                     FccRuntime.tracker.serviceStopped()
-                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopForeground(STOP_FOREGROUND_DETACH)
                     stopSelfResult(startId)
                     return START_NOT_STICKY
                 }
@@ -328,7 +323,7 @@ class FccKeepaliveService : Service() {
                     getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                         .edit().putBoolean(PREF_KEEPALIVE, false).apply()
                     FccRuntime.tracker.serviceFailed("FCC profile unavailable")
-                    stopForeground(STOP_FOREGROUND_REMOVE)
+                    stopForeground(STOP_FOREGROUND_DETACH)
                     stopSelfResult(startId)
                     return START_NOT_STICKY
                 }
@@ -577,7 +572,7 @@ class FccKeepaliveService : Service() {
             if (!requestGate.complete(generation)) return
             getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
                 .edit().putBoolean(PREF_KEEPALIVE, false).apply()
-            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopForeground(STOP_FOREGROUND_DETACH)
             if (success) FccRuntime.tracker.serviceStopped()
             else FccRuntime.tracker.serviceFailed(error)
             stopSelfResult(latestStartId)
@@ -646,43 +641,6 @@ class FccKeepaliveService : Service() {
             BootstrapApplyResult.PARTIAL_FAILURE
         }
         return BootstrapApplyReport(result, pinnedPort, expectedWrites, flushedWrites, matchingAcks)
-    }
-
-    private fun createNotificationChannel() {
-        val channel = NotificationChannel(
-            CHANNEL_ID,
-            "Auto FCC",
-            NotificationManager.IMPORTANCE_LOW
-        ).apply {
-            description = "Home Point text or five-second periodic FCC mode"
-        }
-        val manager = getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(channel)
-    }
-
-    private fun createNotification(mode: AutoFccMode): Notification {
-        val builder = Notification.Builder(this, CHANNEL_ID)
-        // Tapping the notification opens the app
-        val openIntent = Intent(this, MainActivity::class.java).apply {
-            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP
-        }
-        val pendingIntent = android.app.PendingIntent.getActivity(
-            this, 0, openIntent,
-            android.app.PendingIntent.FLAG_IMMUTABLE or android.app.PendingIntent.FLAG_UPDATE_CURRENT
-        )
-        return builder
-            .setContentTitle("SkylabFCCfree")
-            .setContentText(
-                if (mode == AutoFccMode.HOME_POINT_TEXT) {
-                    "Waiting for DJI Fly Home Point text..."
-                } else {
-                    "Maintaining FCC every 5 seconds..."
-                }
-            )
-            .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setOngoing(true)
-            .setContentIntent(pendingIntent)
-            .build()
     }
 
     override fun onDestroy() {

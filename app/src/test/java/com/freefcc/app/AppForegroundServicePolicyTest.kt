@@ -8,6 +8,12 @@ import org.junit.Test
 
 class AppForegroundServicePolicyTest {
     @Test
+    fun autoFccServiceUsesThePersistentStatusNotificationIdentity() {
+        assertEquals(AppForegroundService.CHANNEL_ID, FccKeepaliveService.CHANNEL_ID)
+        assertEquals(AppForegroundService.NOTIFICATION_ID, FccKeepaliveService.NOTIFICATION_ID)
+    }
+
+    @Test
     fun notificationActionsSelectExactlyOneModeOrTurnBothOff() {
         assertEquals(
             AutoFccMode.HOME_POINT_TEXT,
