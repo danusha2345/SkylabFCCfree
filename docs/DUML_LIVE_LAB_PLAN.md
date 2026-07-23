@@ -191,7 +191,7 @@ AUTO `42/42`, затем физический FCC без ручного resend.
 | APK metadata | package `com.freefcc.app`, versionCode `36`, versionName `1.5.19`, APK Signature Scheme v3 |
 | Совместимость подписи | Certificate SHA-256 совпадает с установленными релизами: `1e50efc760a23d71f5ec57f855af4b8c42c21fea6da9122889d59b3b23b890ce` |
 | Release artifact | `FreeFCC-1.5.19.apk`, size `19524878`; локальный и повторно скачанный SHA-256 `a6c1be55570274afd7d23301bf2653c5c4638ebee55eecd218bc4f439060bf0d` |
-| Release | <https://github.com/danusha2345/FreeFCC/releases/tag/v1.5.19>; GitHub `releases/latest` возвращает `v1.5.19` и этот APK |
+| Release | <https://github.com/danusha2345/SkylabFCCfree/releases/tag/v1.5.19>; GitHub `releases/latest` возвращает `v1.5.19` и этот APK |
 | Independent review | Два агента: GO для experimental hardware release; стабильный verdict требует live RC2 test без ручного resend |
 | RC2 update / runtime | PENDING: обновление кнопкой в приложении и fresh Home Point без ручного resend |
 
@@ -204,7 +204,7 @@ AUTO `42/42`, затем физический FCC без ручного resend.
 | APK metadata | package `com.freefcc.app`, versionCode `35`, versionName `1.5.18`, APK Signature Scheme v3 |
 | Совместимость подписи | Certificate SHA-256 совпадает с предыдущими установленными релизами: `1e50efc760a23d71f5ec57f855af4b8c42c21fea6da9122889d59b3b23b890ce` |
 | Release artifact | `FreeFCC-1.5.18.apk`, локальный и повторно скачанный SHA-256 `5e75ae97242088a9cb6fae3bc477cf98934d8878f448a4cef94cfbeb70a48adf` |
-| Release | <https://github.com/danusha2345/FreeFCC/releases/tag/v1.5.18>; GitHub `releases/latest` возвращает `v1.5.18` и этот APK |
+| Release | <https://github.com/danusha2345/SkylabFCCfree/releases/tag/v1.5.18>; GitHub `releases/latest` возвращает `v1.5.18` и этот APK |
 | RC2 update | PENDING: обновление через вкладку Update приложения |
 | Auto-FCC runtime | PENDING: fresh `Home Point=false → established disconnect → reconnect → true`, один full apply и остановка listener; без ручного resend |
 
@@ -217,7 +217,7 @@ AUTO `42/42`, затем физический FCC без ручного resend.
 | APK metadata | package `com.freefcc.app`, versionCode `34`, versionName `1.5.17`, APK Signature Scheme v3 |
 | Совместимость подписи | Certificate SHA-256 совпадает с предыдущим установленным релизом: `1e50efc760a23d71f5ec57f855af4b8c42c21fea6da9122889d59b3b23b890ce` |
 | Release artifact | `FreeFCC-1.5.17.apk`, локальный и повторно скачанный SHA-256 `7a7c8135f29e029abcc0b5c34b9c77a103d0868e56e52af53a320fac54cb24f1` |
-| Release | <https://github.com/danusha2345/FreeFCC/releases/tag/v1.5.17>; GitHub `releases/latest` возвращает `v1.5.17` и этот APK |
+| Release | <https://github.com/danusha2345/SkylabFCCfree/releases/tag/v1.5.17>; GitHub `releases/latest` возвращает `v1.5.17` и этот APK |
 | RC2 update | PENDING: controller не виден через ADB, прежний LAN endpoint `192.168.1.139:8787` недоступен; требуется обновление кнопкой в приложении |
 | Auto-FCC runtime | PENDING: Auto-FCC OFF re-entry без monitor/link drops; затем fresh Home Point transition, один full apply и остановка listener |
 
@@ -305,7 +305,7 @@ keepalive/`BootReceiver`. После Home Point она может восстан
 | APK metadata | package `com.freefcc.app`, versionCode `33`, versionName `1.5.16`, APK Signature Scheme v3 |
 | Совместимость подписи | Certificate SHA-256 совпадает с предыдущим установленным релизом: `1e50efc760a23d71f5ec57f855af4b8c42c21fea6da9122889d59b3b23b890ce` |
 | Release artifact | `FreeFCC-1.5.16.apk`, SHA-256 `d46e8a5f90ce19794ff04c62b99c06fc31a6b12d45e02bb17e59076504e205f0` |
-| Release | <https://github.com/danusha2345/FreeFCC/releases/tag/v1.5.16> |
+| Release | <https://github.com/danusha2345/SkylabFCCfree/releases/tag/v1.5.16> |
 | RC2 update | PENDING: ADB device отсутствует, прежний `192.168.1.139:8787` недоступен, UDP beacon за 15 s не получен |
 | Auto-FCC runtime | PENDING: exact Home Point transition, один full apply, listener/service остановлены без повторных writes |
 | LED runtime | PENDING: один startup read, readback после ON/OFF, без polling |
@@ -328,7 +328,7 @@ keepalive/`BootReceiver`. После Home Point она может восстан
 | APK metadata | package `com.freefcc.app`, versionCode `31`, versionName `1.5.14`, APK Signature Scheme v3 |
 | Совместимость подписи | Certificate SHA-256 совпадает с предыдущим установленным релизом: `1e50efc760a23d71f5ec57f855af4b8c42c21fea6da9122889d59b3b23b890ce` |
 | Release artifact | `FreeFCC-1.5.14.apk`, SHA-256 `76749a6984df562c6d61882f4b465c053867d72bba18e7c880faa4a147df39e2` |
-| Release | <https://github.com/danusha2345/FreeFCC/releases/tag/v1.5.14> |
+| Release | <https://github.com/danusha2345/SkylabFCCfree/releases/tag/v1.5.14> |
 | RC2 update | In-app updater скачал APK, Android installer выполнил обновление, LAN bridge после запуска сообщил `app_version=1.5.14` |
 | FCC runtime | Полный bootstrap завершён, затем timestamp лёгкого keepalive обновлялся примерно каждые 2,23 s; пользователь физически подтвердил FCC |
 | Outdoor / Home Point | Ранний FCC сбрасывается в CE при записи Home Point; Auto-FCC 1.5.14 сам его не восстанавливает; ручной полный `Re-Apply` после Home Point работает |
@@ -345,7 +345,7 @@ keepalive/`BootReceiver`. После Home Point она может восстан
 | Совместимость подписи | Release подписан локальным `~/.android/debug.keystore`; certificate SHA-256 совпадает с `v1.5.12`: `1e50efc760a23d71f5ec57f855af4b8c42c21fea6da9122889d59b3b23b890ce` |
 | APK metadata | package `com.freefcc.app`, versionCode `30`, versionName `1.5.13`, APK Signature Scheme v3 |
 | Release artifact | `FreeFCC-1.5.13.apk`, SHA-256 `d5be20bfac263cf8cb9a004576a9c74eec052b4505b1c82075fd8eb7e3f3db38` |
-| Release | <https://github.com/danusha2345/FreeFCC/releases/tag/v1.5.13> |
+| Release | <https://github.com/danusha2345/SkylabFCCfree/releases/tag/v1.5.13> |
 | RC2 reachability после release | ADB device отсутствует; старый `192.168.1.139:8787` недоступен; UDP beacon за 15 s не получен |
 
 ## Live evidence `1.5.13`

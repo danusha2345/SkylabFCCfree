@@ -5,7 +5,7 @@
 ### Open-source FCC unlock for DJI smart controllers with a screen
 
 [![License: AGPL-3.0](https://img.shields.io/badge/License-AGPL--3.0-blue?style=flat-square)](LICENSE)
-[![GitHub release](https://img.shields.io/github/v/release/danusha2345/FreeFCC?style=flat-square)](https://github.com/danusha2345/FreeFCC/releases)
+[![GitHub release](https://img.shields.io/github/v/release/danusha2345/SkylabFCCfree?style=flat-square)](https://github.com/danusha2345/SkylabFCCfree/releases)
 [![Boosty](https://img.shields.io/badge/Boosty-Support%20this%20project-FF7143?style=flat-square&logo=boosty&logoColor=white)](https://boosty.to/danusha/donate)
 
 A free and open-source Android app that unlocks FCC mode, sends experimental 4G activation frames, and queries device info on DJI smart controllers with a screen (RC2, RC Pro 2, RC Plus). No external backend, paid activation, or tracking. Commands run locally from inspectable JSON profiles.
@@ -37,7 +37,7 @@ A free and open-source Android app that unlocks FCC mode, sends experimental 4G 
 | **Device Info** | Shows app version, controller code, aircraft model code, factory S/N, and LAN bridge address |
 | **Auto FCC** | Saves one of two optional startup modes: repeated DJI Fly Home Point detection or the original four-frame keepalive every five seconds |
 | **Persistent Status** | Shows a foreground notification and starts the app service automatically after controller boot without sending FCC commands |
-| **Auto-Updater** | Checks `danusha2345/FreeFCC` GitHub Releases and lets you download/install from the app |
+| **Auto-Updater** | Checks `danusha2345/SkylabFCCfree` GitHub Releases and lets you download/install from the app |
 | **LAN Diagnostic API** | Logs, live status, bounded OpenFCC/DJI `logcat`, one-shot localhost socket inventory, allowlisted app actions, and raw DUML request/response over HTTP on the controller's RFC1918 Wi-Fi address |
 | **Local by default** | Internet is used for update checks/downloads; the LAN API stays inside the current Wi-Fi subnet and can be disabled in the Log tab |
 | **Open Profiles** | Command frames are plain JSON files you can inspect and edit |
@@ -49,16 +49,19 @@ A free and open-source Android app that unlocks FCC mode, sends experimental 4G 
 
 | Download | Link |
 |----------|------|
-| SkylabFCCfree App (APK) | [GitHub Releases](https://github.com/danusha2345/FreeFCC/releases) |
+| SkylabFCCfree App (APK) | [GitHub Releases](https://github.com/danusha2345/SkylabFCCfree/releases) |
 | Helper Apps (zip) | [freefcc.duckdns.org/downloads/freefcc-helpers.zip](https://freefcc.duckdns.org/downloads/freefcc-helpers.zip) |
 
 Release changes are tracked in [CHANGELOG.md](CHANGELOG.md).
 
-For the RC2 SD-card installation below, download both the APK and the helper archive. The archive contains the four sideloading utilities used by the guide.
+For the RC2 SD-card installation below, download both the APK and the helper
+archive. The guide uses `01_PackageInstaller`, `02_FileManager`, and
+`03_ATVLauncher`. `04_Edge Gestures` is no longer required and can be ignored.
 
-> The helper APKs are third-party sideloading tools. Their exact upstream
-> versions and licenses are not documented in this repository yet; review the
-> archive before using it on a controller.
+> `01_PackageInstaller` and `02_FileManager` are DJI-signed copies of the
+> controller's Android system packages. `03_ATVLauncher` is a third-party
+> launcher. The archive's full redistribution provenance and third-party
+> licensing are not documented in this repository yet; review it before use.
 
 ## Compatibility
 
@@ -109,7 +112,7 @@ continuous. The persistent status notification itself does not poll.
 **Send FCC Request** remains a one-shot manual full-profile action. Neither
 automatic mode nor the manual action opens DJI Fly; only **Open DJI Fly** does.
 
-If you test it on a model or firmware version not listed here, please [open an issue](https://github.com/danusha2345/FreeFCC/issues) and let me know.
+If you test it on a model or firmware version not listed here, please [open an issue](https://github.com/danusha2345/SkylabFCCfree/issues) and let me know.
 
 ## Install Guide
 
@@ -136,21 +139,18 @@ Hold the power button to shut down, then power back on. This registers the packa
 
 ### 4. Install the launcher
 
-Back into your folder on the SD card. Install `03_ATVLauncher` but don't open it yet.
+Back into your folder on the SD card. Install `03_ATVLauncher`, then tap
+**OPEN**.
 
-### 5. Set up Edge Gestures
+### 5. Install SkylabFCCfree
 
-Install `04_Edge Gestures` and this time tap OPEN. Follow the prompts and grant the Accessibility service permission. Then:
+In ATV Launcher, open **Files**, find your folder, tap the SkylabFCCfree APK,
+and install it. Tap **OPEN** once after installation so Android enables its
+boot receiver and the app can create its persistent status notification.
 
-- Disable the left gesture, keep only the right side
-- Scroll down to "Swipe to the left", tap it
-- Pick Application, then choose ATV Launcher
-
-Now swiping right-to-left on the screen opens the launcher.
-
-### 6. Install SkylabFCCfree
-
-Swipe from the right edge to open ATV Launcher. Open the Files app, find your folder, tap `FREEFCC.apk`, and install it.
+`04_Edge Gestures` is not needed. On later controller boots SkylabFCCfree starts
+its background service automatically. Tap its persistent notification to open
+the app and use **Open DJI Fly** to enter DJI Fly.
 
 ## How to Use
 
@@ -166,7 +166,7 @@ full FCC apply.
 2. Turn on **Auto FCC — Home Point**, turn on **Auto FCC — every 5 sec**, or use the one-shot **Send FCC Request**. Turning one switch on turns the other off; turning the active switch off leaves both off.
 3. Open DJI Fly only with **Open DJI Fly**. Home Point mode remains armed and sends the full profile after every new flight-session Home Point, including after replacing the aircraft battery without restarting the controller. Five-second mode sends the full profile once and then the original four-frame keepalive until its switch is turned off.
 4. For 4G diagnostics, tap **Probe 4G Endpoint** first. This is read-only and only checks whether `/duss/mb/0x205` is reachable. **Send 4G Activation Frames** remains experimental and confirms writes only, not activation.
-   > **Note:** The integrated eSIM path on DJI Avata 360 is not yet proven compatible with the captured external-module profile. Please attach the LAN logs to an [issue](https://github.com/danusha2345/FreeFCC/issues) when testing.
+   > **Note:** The integrated eSIM path on DJI Avata 360 is not yet proven compatible with the captured external-module profile. Please attach the LAN logs to an [issue](https://github.com/danusha2345/SkylabFCCfree/issues) when testing.
 5. The aircraft-control card is split evenly: GPS on the left and LED on the right. Each side has its own manual refresh and explicit ON/OFF buttons, available without starting Auto FCC first. GPS ON/OFF sends five bounded idempotent writes 100 ms apart, releases port `40007`, and after 250 ms automatically runs a three-attempt status Refresh. Every status attempt opens a new port lease instead of reusing a failed one. LED ON/OFF makes at most two complete reference-pattern command cycles. GPS/LED stay on the wrapped `40007` path because live RC Pro 2 tests found no matching readback on `40009` or `8901`. The last validated replies persist across app reopen with a `Last verified` timestamp, and a failed manual refresh does not erase them. A GPS write invalidates the older cached value until the fresh Refresh completes, so the UI never presents the pre-command OFF/ON as current. Neither side polls port `40007` in the background.
 6. The **Info** tab lets you query the controller's hardware and firmware version
 7. The **Log** tab starts the LAN diagnostic API by default. It uses unencrypted HTTP and a fixed shared password. A UDP beacon broadcasts only the controller IP and port across the current Wi-Fi subnet; it does not include the password, logs, or command payloads. Disable the bridge on untrusted Wi-Fi. See [LAN Control API](docs/LAN_CONTROL_API.md) and the evidence-based [RC2 port and stream map](docs/RC2_PORT_AND_STREAM_MAP.md).
@@ -213,7 +213,7 @@ If SkylabFCCfree helped you out, please consider starring the repo or supporting
 
 <div align="center">
 
-[![Star on GitHub](https://img.shields.io/badge/Star%20on%20GitHub-%E2%AD%90-yellow?style=for-the-badge&logo=github)](https://github.com/danusha2345/FreeFCC)
+[![Star on GitHub](https://img.shields.io/badge/Star%20on%20GitHub-%E2%AD%90-yellow?style=for-the-badge&logo=github)](https://github.com/danusha2345/SkylabFCCfree)
 
 [![Support on Boosty](https://img.shields.io/badge/Boosty-Support%20development-FF7143?style=for-the-badge&logo=boosty&logoColor=white)](https://boosty.to/danusha/donate)
 
@@ -343,7 +343,7 @@ Requirements: Java 17+, Android SDK 35.
 $env:JAVA_HOME = "C:\Program Files\Eclipse Adoptium\jdk-17.0.18.8-hotspot"
 $env:PATH = "$env:JAVA_HOME\bin;$env:PATH"
 
-cd C:\projects\FreeFCC
+cd C:\projects\SkylabFCCfree
 java -classpath gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapperMain assembleRelease --no-daemon
 ```
 
@@ -353,7 +353,7 @@ java -classpath gradle\wrapper\gradle-wrapper.jar org.gradle.wrapper.GradleWrapp
 export JAVA_HOME=/path/to/jdk-17
 export PATH="$JAVA_HOME/bin:$PATH"
 
-cd /path/to/FreeFCC
+cd /path/to/SkylabFCCfree
 ./gradlew assembleRelease --no-daemon
 ```
 
@@ -389,5 +389,5 @@ The DUML protocol implementation is based on the publicly documented [dji-firmwa
 Questions, issues, or feedback? Reach out:
 
 - **Email:** [freefccidothings@gmail.com](mailto:freefccidothings@gmail.com)
-- **GitHub Issues:** [github.com/danusha2345/FreeFCC/issues](https://github.com/danusha2345/FreeFCC/issues)
+- **GitHub Issues:** [github.com/danusha2345/SkylabFCCfree/issues](https://github.com/danusha2345/SkylabFCCfree/issues)
 - **Boosty:** [boosty.to/danusha/donate](https://boosty.to/danusha/donate)

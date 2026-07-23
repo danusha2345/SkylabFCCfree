@@ -103,7 +103,7 @@ services пульта/aircraft stack. Наличие `/duss/mb/0x205` доказ
   активный coroutine на ближайшей безопасной точке и не позволяет старому flow
   включить keepalive/открыть DJI Fly. При оставленном `Auto-FCC ON` штатный
   автозапуск DJI Fly сохранён.
-- Updater и ссылки переведены на `danusha2345/FreeFCC`.
+- Updater и ссылки переведены на `danusha2345/SkylabFCCfree`.
 - Avata 360 в README больше не помечен как модель без cellular hardware.
 - В 1.5.8 уплотнён GUI для небольшого экрана RC2: уменьшены page/card padding,
   верхние и межсекционные интервалы, высота кнопок и bottom navigation; длинные

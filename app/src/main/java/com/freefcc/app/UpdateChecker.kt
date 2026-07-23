@@ -13,7 +13,7 @@ import java.security.MessageDigest
  * Checks for app updates by querying the GitHub Releases API.
  *
  * GitHub API endpoint:
- *   GET https://api.github.com/repos/danusha2345/FreeFCC/releases/latest
+ *   GET https://api.github.com/repos/danusha2345/SkylabFCCfree/releases/latest
  *
  * Returns JSON with tag_name, name, body (changelog), and assets[] (download URLs).
  *

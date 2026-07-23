@@ -13,5 +13,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "FreeFCC"
+rootProject.name = "SkylabFCCfree"
 include(":app")

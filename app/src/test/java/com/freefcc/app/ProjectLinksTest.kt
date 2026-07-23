@@ -8,9 +8,9 @@ class ProjectLinksTest {
 
     @Test
     fun updaterTargetsForkReleases() {
-        assertEquals("danusha2345/FreeFCC", ProjectLinks.REPOSITORY)
+        assertEquals("danusha2345/SkylabFCCfree", ProjectLinks.REPOSITORY)
         assertEquals(
-            "https://api.github.com/repos/danusha2345/FreeFCC/releases/latest",
+            "https://api.github.com/repos/danusha2345/SkylabFCCfree/releases/latest",
             ProjectLinks.LATEST_RELEASE_API
         )
         assertFalse(ProjectLinks.LATEST_RELEASE_API.contains("doesthings/FreeFCC"))
