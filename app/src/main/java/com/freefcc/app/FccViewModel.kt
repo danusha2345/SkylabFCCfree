@@ -3,6 +3,7 @@ package com.freefcc.app
 import android.Manifest
 import android.app.Application
 import android.content.Context
+import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import androidx.lifecycle.AndroidViewModel
@@ -211,11 +212,15 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     private val transport = DumlTransport()
     private val prefs = app.getSharedPreferences("freefcc", Context.MODE_PRIVATE)
+    private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
+        if (key == AutoFccSelection.PREF_MODE) refreshAutoFccSelection()
+    }
     private var initialized = false
     @Volatile private var aircraftIdentityVerified = false
     @Volatile private var verifiedAircraftIdentity = ""
 
     init {
+        prefs.registerOnSharedPreferenceChangeListener(preferenceListener)
         // MainActivity.onCreate() calls init() below on every Activity re-creation
         // (e.g. config change), but this class init{} runs exactly once per
         // ViewModel instance — the collector must live here, not in init().
@@ -816,6 +821,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         }
         AutoFccSelection.save(app, nextMode)
         update { copy(selectedAutoMode = nextMode) }
+        AppForegroundService.refresh(app)
 
         if (nextMode == null) {
             if (currentMode == null) FccKeepaliveService.stop(app)
@@ -841,6 +847,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         AutoFccSelection.save(app, null)
         update { copy(selectedAutoMode = null) }
         FccKeepaliveService.stop(app)
+        AppForegroundService.refresh(app)
         log("Auto FCC stopped")
     }
 
@@ -2476,6 +2483,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     }
 
     override fun onCleared() {
+        prefs.unregisterOnSharedPreferenceChangeListener(preferenceListener)
         if (activeLanController === this) activeLanController = null
         super.onCleared()
     }

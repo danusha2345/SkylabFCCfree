@@ -88,6 +88,7 @@ class MainActivity : ComponentActivity() {
         AppForegroundService.start(this)
         requestNotificationPermissionIfNeeded()
         viewModel.init()
+        handleNotificationAction(intent)
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 moveTaskToBack(true)
@@ -105,6 +106,34 @@ class MainActivity : ComponentActivity() {
             ) {
                 AppRoot(viewModel)
             }
+        }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleNotificationAction(intent)
+    }
+
+    private fun handleNotificationAction(intent: Intent?) {
+        if (intent?.action != AppForegroundService.ACTION_SELECT_HOME_POINT) return
+        intent.action = null
+        if (FccKeepaliveService.isDjiFlyTextAccessEnabled(this)) {
+            viewModel.setAutoFccMode(AutoFccMode.HOME_POINT_TEXT, true)
+            return
+        }
+
+        AutoFccSelection.save(this, AutoFccMode.HOME_POINT_TEXT)
+        viewModel.refreshAutoFccSelection()
+        AppForegroundService.refresh(this)
+        try {
+            startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+        } catch (_: ActivityNotFoundException) {
+            Toast.makeText(
+                this,
+                "Accessibility settings are unavailable on this controller",
+                Toast.LENGTH_LONG
+            ).show()
         }
     }
 

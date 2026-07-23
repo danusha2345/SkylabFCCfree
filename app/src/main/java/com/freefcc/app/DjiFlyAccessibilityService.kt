@@ -65,6 +65,10 @@ class DjiFlyAccessibilityService : AccessibilityService() {
                 "phrases=${catalog.phrases.size} locales=${catalog.localeCount}; " +
                 "no DUML reads while waiting"
         )
+        if (AutoFccSelection.load(this) == AutoFccMode.HOME_POINT_TEXT) {
+            FccKeepaliveService.startSelectedMode(this)
+        }
+        AppForegroundService.refresh(this)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {

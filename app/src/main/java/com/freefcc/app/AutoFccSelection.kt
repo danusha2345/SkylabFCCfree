@@ -9,7 +9,7 @@ import android.content.Context
  */
 internal object AutoFccSelection {
     private const val PREFS_NAME = "freefcc"
-    private const val PREF_MODE = "auto_fcc_mode"
+    internal const val PREF_MODE = "auto_fcc_mode"
 
     fun load(context: Context): AutoFccMode? =
         AutoFccMode.fromPersistedValue(

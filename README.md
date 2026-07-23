@@ -101,6 +101,11 @@ after the service is enabled and you return to SkylabFCCfree, the mode starts.
 **Auto FCC — every 5 sec** is the explicit legacy alternative. It sends the
 complete profile once, then sends the original upstream four-frame
 `fcc_keepalive.json` every five seconds until its switch is turned off.
+On a resource-constrained controller, prefer **Home Point**: while armed it is
+event-driven and does not perform periodic DUML/TCP work. The five-second mode
+wakes the service and makes four short frame writes per tick—48 writes per
+minute, or 2,880 per hour—so its CPU, I/O, and battery cost is small but
+continuous. The persistent status notification itself does not poll.
 **Send FCC Request** remains a one-shot manual full-profile action. Neither
 automatic mode nor the manual action opens DJI Fly; only **Open DJI Fly** does.
 
@@ -170,9 +175,13 @@ SkylabFCCfree also keeps a low-priority foreground notification visible while
 the controller is running. The service starts after controller boot and after
 an in-place APK update. If an Auto FCC switch was selected, that mode is
 restored without opening DJI Fly; if both switches were off, no FCC command is
-started. Tap the notification to open the app. On Android 13 and newer, allow
-notifications when prompted; after an Android force-stop, open the app once to
-let the system enable automatic startup again.
+started. The notification shows **Home Point**, **every 5 seconds**, or **Off**
+and exposes all three choices as actions, so the mode can be changed without
+opening the app. Selecting Home Point opens Android Accessibility settings when
+the required service is not enabled yet. Tap the notification body to open the
+app. On Android 13 and newer, allow notifications when prompted; after an
+Android force-stop, open the app once to let the system enable automatic
+startup again.
 
 ## How Do I Know If It Worked?
 
