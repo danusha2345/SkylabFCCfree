@@ -23,6 +23,7 @@
 | WA341 V01.00.0700 | `Downloads/V01.00.0700_wa341_dji_system.bin` | Внешний tar и IMaH headers | Основные модули требуют неизвестный `STUE`; ни один опубликованный вариант `UFIE` не расшифровал `1502` с корректной checksum |
 | DJI Fly 1.19.4 | `Projects_and_coding/dji_fly/FCCDJIFly_1.19.4_1085_v1.19.4.11.apk` | AppGuard APK и embedded `libdatajar.so` | Client metadata содержит `GetAreaCode` и `GetPerceptionGesture`, но защищённый DEX не даёт переносить эти имена на произвольную wire-пару |
 | DJI Fly 1.21.4 | `FreeFCC/.scratch/` и результаты разбора в `AVATA360_4G_RESEARCH.md` | APK и `libdongle_esim_core.so` | Штатный eSIM flow использует stateful `18:4B/4C`, а не sweep `51:00..7F` |
+| Drone-Hacks Mobile 1.0.1 | `Downloads/release-22baaacc.apk` | Tauri/Rust APK, Android USB bridge и native-библиотеки | One-Shot FCC получает `cmdSet`/`cmdId`/`payload` от закрытого API и отправляет одну логическую custom DUML-команду; точные байты в APK отсутствуют. См. [`DRONE_HACKS_MOBILE_APK_ANALYSIS.md`](DRONE_HACKS_MOBILE_APK_ANALYSIS.md) |
 | Live captures | `FreeFCC/.scratch/` | LAN JSON/JSONL, OpenFCC logs, bounded captures | Runtime evidence хранится отдельно от статически восстановленной семантики |
 
 Пути выше локальные и не предназначены для коммита. Проверяемые выводы,
