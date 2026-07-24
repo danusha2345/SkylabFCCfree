@@ -13,6 +13,10 @@
 [`FIRMWARE_CORPUS.md`](FIRMWARE_CORPUS.md). Набор активных `0x51` handlers
 совпадает в обеих версиях.
 
+Связанные command set `0x18`, dongle activation `00:32`, WLM negotiation,
+redial/reset и периодические задачи `dji_lte` разобраны отдельно в
+[`LTE_DUML_COMMAND_REFERENCE.md`](LTE_DUML_COMMAND_REFERENCE.md).
+
 ## Адреса модулей
 
 | Config field | Host ID | Модуль |

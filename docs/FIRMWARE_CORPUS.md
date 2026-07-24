@@ -145,6 +145,11 @@ subtypes `01/02/04/09/0A/FF`; `0x32` возвращает protocol error `0xE3`.
 139 и 576. Это снижает риск, что вывод о `51:1A` относится только к одной
 версии.
 
+Полная восстановленная таблица command set `0x18`, цепочка dongle activation →
+dial → pairing → WLM negotiation, причины redial/reset и scheduler periods
+вынесены в
+[`LTE_DUML_COMMAND_REFERENCE.md`](LTE_DUML_COMMAND_REFERENCE.md).
+
 ## Что означает `0x0205`
 
 В `lte_cfg.json` обеих разобранных версий:

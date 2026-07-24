@@ -7,6 +7,10 @@
 доказывает, что aircraft link активирован, а успешная запись FreeFCC в
 `/duss/mb/0x205` не настраивает SIM, APN или USB network composition.
 
+Восстановленные command set `0x18`, dongle activation `00:32`, WLM
+negotiation, redial/reset и периодические задачи `dji_lte` собраны в
+[`LTE_DUML_COMMAND_REFERENCE.md`](LTE_DUML_COMMAND_REFERENCE.md).
+
 Полные IMEI, IMSI и ICCID намеренно не сохраняются в репозитории.
 
 ## Краткий результат

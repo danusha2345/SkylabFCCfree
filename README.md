@@ -280,6 +280,9 @@ See [Avata 360/4G research](docs/AVATA360_4G_RESEARCH.md) and the
 [local firmware corpus](docs/FIRMWARE_CORPUS.md). The active RC Pro 2
 `0x51` handlers are listed separately in the
 [RC Pro 2 DUML command reference](docs/RC_PRO2_DUML_COMMAND_REFERENCE.md).
+The related `0x18` table, dongle activation, WLM negotiation, redial/reset
+conditions, and native scheduler periods are collected in the
+[DJI LTE command reference](docs/LTE_DUML_COMMAND_REFERENCE.md).
 
 Live USB/AT evidence for the tested Fibocom physical-SIM modem and the dual-
 function Quectel/eSIM unit is kept separately in
