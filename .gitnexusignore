@@ -1,0 +1,7 @@
+# Reverse-engineering working trees, not project source. Indexing them fills the
+# knowledge graph with Ghidra project internals, decompiled dumps and unpacked
+# third-party APKs instead of the app's own Kotlin code.
+extracted/
+ghidra_scratch/
+graphify-out/
+tmp/
