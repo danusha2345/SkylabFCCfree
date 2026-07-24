@@ -115,21 +115,77 @@ Enums из `libwlm.so`:
 - download: `DOWNLOAD_COMMON=0`, `DOWNLOAD_WIFI_HIGHSPEED=1`.
 
 Handler может вызвать `wlm_link_mode_sw_trigger`, но только после своих
-внутренних проверок и поиска peer. Пользовательская отправка полного sweep не
-дала видимого эффекта, поэтому нельзя утверждать, что эта ветка реально
-изменила link mode на проверенной связке.
+внутренних проверок:
+
+- `service_type` допускает только `0..1`;
+- liveview допускает mode `0..2`, download — `0..1`;
+- при уже идущем переключении повтор с теми же sender/sequence игнорируется,
+  а конкурирующий запрос получает ответ `5/5/5`;
+- пустой peer list и identity, которой нет в peer list, дают ответ `7/7/7`;
+- при принятом запросе результат приходит асинхронно после
+  `wlm_link_mode_sw_trigger`.
+
+Для `service_type=0`, `mode=0` handler формирует SDR-only link modes. Поэтому
+FreeFCC посылает корректно структурированный запрос перевода liveview в SDR,
+но не запрос LTE activation. Если peer уже работает в SDR-only или identity не
+найдена, видимого изменения не будет. Именно такой отрицательный live-результат
+получен при отправке полного sweep.
 
 ### `51:19` — modem on/off
 
-Handler существует, но отвергает payload длиннее семи bytes. Body FreeFCC
-`000000 + ASCII(serial)` длиннее, поэтому не является корректной modem-on/off
-командой для этого handler.
+В обеих сборках handler требует payload **не короче восьми bytes**. Первые
+четыре поля имеют такой layout:
+
+| Offset | Поле | Допустимые значения в handler | Значение FreeFCC |
+|---:|---|---|---|
+| `0` | `msg_ver` | кэшируется/логируется | `00` |
+| `1` | `link_type` | `0` для поддержанного SDR path | `00` |
+| `2` | `control_type` | `2` — power-on path, `3` — power-off path | `00` |
+| `3` | `cmd_type` | `0` — control request, `1` — agent report | первый ASCII-байт serial |
+
+Следовательно, body `00 00 00 + ASCII(serial)` проходит проверку длины, но
+первый символ serial становится `cmd_type`. Для обычного serial это не `0` и
+не `1`: handler пишет `error cmd_type` и завершает обработку без power-control
+действия. Даже гипотетический четвёртый нулевой byte оставил бы
+`control_type=0`, который handler помечает как неподдерживаемый.
+
+Реальные control branches здесь существуют, но FreeFCC их не выбирает:
+`cmd_type=0/control_type=2` ставит событие включения SDR modem, а
+`cmd_type=0/control_type=3` после precondition ставит событие выключения.
+`cmd_type=1` — обратный report о фактическом SDR power state, а не команда
+включения LTE.
 
 ### `51:22` — bind status changed
 
-Команда передаёт событие в `dji_lte` и использует первые шесть bytes payload.
-Точная структура всех полей пока не восстановлена. Совпадение ID с sweep не
-даёт оснований называть этот кадр активацией.
+Handler сначала пересылает исходное событие LTE-службе, затем копирует до
+шести bytes payload и подтверждает его трёхбайтовым нулевым ACK. Непосредственно
+разобраны первые три поля:
+
+| Offset | Поле | Значения |
+|---:|---|---|
+| `0` | `version` | версия отчёта |
+| `1` | `status` | `0` unknown, `1` start, `2` success, `3` failed, `4` cancel |
+| `2` | `scene` | context; значение `2` пропускает обычное обновление bind flag |
+| `3..5` | reserved/context | главным handler напрямую не интерпретируются |
+
+`status=1` поднимает внутренний bind flag, `0/3/4` его снимают. Ветка
+`status=2` проверяет текущие link modes: при необходимости запускает route
+control, сбрасывает LTE agent-report cache, а completion callback обновляет
+session/device state и повторно включает frequency auto-avoid. Это внутренний
+отчёт о ходе binding, а не самостоятельная activation-команда.
+
+FreeFCC снова посылает `00 00 00 + ASCII(serial)`, то есть
+`version=0/status=unknown/scene=0`. В этой ветке serial не используется как
+identity, bind flag снимается, а LTE activation не запускается.
+
+Контракты `51:19`, `51:1A` и `51:22` совпадают в RC Pro 2 build 139 и 576.
+Адреса ELF-symbols:
+
+| Handler | build 139 | build 576 |
+|---|---:|---:|
+| `wlm_bind_status_changed` | `0x117960` | `0x133f28` |
+| `wlm_service_mode_switch_req` | `0x139608` | `0x15c9d8` |
+| `wlm_modem_onoff_control` | `0x15ed64` | `0x185758` |
 
 ### `51:14` — наблюдаемый push в другом корпусе
 

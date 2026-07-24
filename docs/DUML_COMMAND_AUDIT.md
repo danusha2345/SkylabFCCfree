@@ -63,7 +63,7 @@ RF-региона, GPS, LED или 4G-состояния.
 | 11 | `07:18` | `ff415500` | Запись country/area с `AU`; prefix `ff` и route зависят от реализации | `CONFIRMED` для family |
 | 12 | `07:19` | `c0` | RM510 handler не читает request payload, а возвращает 2-byte alpha-2 country из vendor slot `6`; `c0` в этой реализации игнорируется | `CONFIRMED` для локального handler contract |
 | 13, 14 | `03:F9` | `d04aeffb01/00` | Hash `0xfbef4ad0` = `c1_regulatory_restriction`; запись `1`, затем сразу `0` в `bvision:4/perception_agent`. Имя находится в FocusTrack-контексте WM260; точный эффект импульса `1→0` не декодирован | name/hash/value/route `CONFIRMED`; effect `UNKNOWN` |
-| 15 | `00:E5` | `323201` | В WM260 получатель `dst=0x6F` — `dji_sec/sec_service`; `00:E5` обслуживает DJI Care binding/pairing/status. Точный смысл subtype `32 32 01` не восстановлен, но признаков прямого RF/FCC-действия нет | target/family `CONFIRMED`; subtype `UNKNOWN` |
+| 15 | `00:E5` | `323201` | В WM260 получатель `dst=0x6F` — `dji_sec/sec_service`. DJI Care dispatcher принимает только subtype `01/02/04/09/0A/FF`; `0x32` попадает в default-ветку и возвращает error `0xE3`, не запуская действие | handler/rejection `CONFIRMED` для WM260 |
 | 16 | `03:F9` | `236b820101` | Hash `0x01826b23` = `sdr_lost_prevent_never_takeoff_en`; boolean write `1` в `flight:0`. В таблицах Air 3S/Mavic 4 default уже равен `1` | `CONFIRMED` |
 | 17 | `03:F9` | `8773e68a01` | Hash `0x8ae67387` = `sdr_lost_prevent_has_takeoff_en`; boolean write `1` в `flight:0`. В таблицах Air 3S/Mavic 4 default уже равен `1` | `CONFIRMED` |
 | 18, 19 | `06:8C` | `000300`, `000100` | Получатель `dst=0x09` — `vt_air:0`, то есть air-side transmission MCU. Linux/userspace handler в доступном WM260 образе отсутствует; точный параметр не декодирован | route `CONFIRMED`; semantics `UNKNOWN` |
@@ -71,7 +71,8 @@ RF-региона, GPS, LED или 4G-состояния.
 
 Главный непосредственно распознанный FCC-write здесь — первый `09:27`
 `setForceFcc`. Country-команды также реально меняют country/area state.
-Два `sdr_lost_prevent_*` оказались штатными flight-safety flags, а
+`00:E5 / 32 32 01` на WM260 отвергается без действия. Два
+`sdr_lost_prevent_*` оказались штатными flight-safety flags, а
 `c1_regulatory_restriction` относится к perception/FocusTrack. Семантика
 `10:58`, `06:72` и `06:8C` всё ещё не доказана. Полный RF-эффект составного
 профиля необходимо проверять графиком Transmission или независимым
@@ -112,6 +113,19 @@ hash(name) = fold(name + "_0", h = ((h << 8) | byte) mod 0xfffffffb)
 | `0x01826b23` | `sdr_lost_prevent_never_takeoff_en` |
 | `0x8ae67387` | `sdr_lost_prevent_has_takeoff_en` |
 
+В WM260 `dji_perception` параметр `c1_regulatory_restriction` расположен по
+`0x10eb861`, а его descriptor — по `0x1338d40`. Это единственный элемент
+группы `FocusTrackParams`; рядом находятся `FocusTrack init/exit`,
+`stopToSpotlight`, `stopToMot`, yaw-control и obstacle-avoidance callbacks.
+Контекст FocusTrack поэтому подтверждён сильнее, чем только совпадением hash,
+но descriptor не раскрывает внешнее действие короткого импульса `1→0`.
+
+Для второго `09:27` literal register address `0xffff0063` не найден в
+проверенных RM510 `dji_sdrs_agent`, `dji_wlm`, `dji_link` и WM260
+`dji_sys`/`dji_perception`. Это согласуется с маршрутом в `vt_air:0`: handler
+находится в отсутствующей firmware transmission MCU. Историческую подпись
+«5.8 GHz power limit» текущий локальный корпус не подтверждает.
+
 ## Пятисекундный periodic-профиль
 
 `fcc_keepalive.json` повторяет четыре кадра:
@@ -150,9 +164,11 @@ hash(name) = fold(name + "_0", h = ((h << 8) | byte) mod 0xfffffffb)
 Штатный eSIM flow, найденный в DJI Fly 1.21.4, использует семейство
 `18:4B/4C`. Дополнительный разбор ранее скачанных RC Pro 2 build 139 и 576
 показал, что текущий sweep `51:00..7F` не просто не имеет readback: `51:1A`
-разбирает ведущие нули как `SERVICE_LIVEVIEW + LIVEVIEW_SDR`, а 46 старших ID
-находятся вне зарегистрированной таблицы. При этом реальная отправка всего
-sweep, выполненная пользователем, не дала видимого эффекта. Поэтому профиль
+разбирает ведущие нули как `SERVICE_LIVEVIEW + LIVEVIEW_SDR`; в `51:19` первый
+символ serial попадает в `cmd_type` и отвергается; `51:22` получает
+`status=unknown` и снимает bind flag. Ещё 46 старших ID находятся вне
+зарегистрированной таблицы. При этом реальная отправка всего sweep,
+выполненная пользователем, не дала видимого эффекта. Поэтому профиль
 сохраняется только как явно названный legacy research sweep, а не как
 доказанная 4G activation.
 

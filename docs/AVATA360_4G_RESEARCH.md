@@ -167,12 +167,23 @@ data session.
 После этого handler вызывает `wlm_link_mode_sw_trigger`. Для payload FreeFCC
 это запрос SDR-only liveview, не LTE activation. Значения enum, найденные в
 `libwlm.so`: `LIVEVIEW_SDR=0`, `LIVEVIEW_HYBIRD=1`, `LIVEVIEW_WIFI=2`.
+До запуска переключения handler проверяет service/mode, отсутствие
+конкурирующего switch, наличие peer list и совпадение identity. Поэтому
+корректный по layout запрос может быть отклонён или оказаться идемпотентным,
+если link уже SDR-only.
 
-`51:19` действительно управляет modem on/off, но его handler принимает payload
-не длиннее семи bytes. Текущий body `000000 + ASCII(serial)` длиннее и
-отбрасывается до применения. `51:22` относится к изменению bind status и
-копирует первые шесть bytes после передачи в `dji_lte`; оснований считать его
-неизвестной «активацией» нет.
+`51:19` действительно содержит SDR modem on/off branches и требует минимум
+восемь bytes, но layout FreeFCC им не соответствует: offsets `0..3` — это
+`msg_ver`, `link_type`, `control_type`, `cmd_type`, а не трёхбайтовый prefix и
+serial. В body `000000 + ASCII(serial)` первый символ serial становится
+неподдерживаемым `cmd_type`, поэтому handler завершает обработку без
+power-control действия.
+
+`51:22` — отчёт bind status: offsets `0..2` означают
+`version/status/scene`, где status `0..4` — unknown/start/success/failed/cancel.
+FreeFCC посылает status `0`, то есть unknown; handler пересылает отчёт
+LTE-службе, отвечает ACK и снимает внутренний bind flag, но не запускает LTE
+activation. Эти контракты совпали в RC Pro 2 build 139 и 576.
 
 Полные границы локального корпуса, hashes и отсутствующие receiver firmwares
 зафиксированы в [`FIRMWARE_CORPUS.md`](FIRMWARE_CORPUS.md).

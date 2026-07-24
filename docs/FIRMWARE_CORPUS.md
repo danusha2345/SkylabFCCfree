@@ -15,7 +15,7 @@
 |---|---|---|---|
 | DJI RC/RM510 | `fpga_tang_nano_9k_card_reader-spinal/.scratch/rc_rm510_20260723/` | `dji_wlm`, `dji_link`, `dji_sdrs_agent`, `libduml_frwk.so`, `libwlm.so`, `dji.json`, debugdata | Маршрутизация DUML, `09:EC`, `51:14` и часть link/control handlers |
 | DJI RC Pro 2/RC520 | `FreeFCC/.scratch/rcpro2_4g_ota/` | Android OTA v139/v400/v440/v576, извлечённые system/vendor roots, ELF и configs | Владелец route `0xEE`, таблица `0x51`, точная семантика `51:1A`, LTE/WLM host IDs |
-| WM260 | `fpga_tang_nano_9k_card_reader-spinal/.scratch/wm260/` | `system_2.img`, `vendor_2.img`, извлечённый `dji_perception` | Route `10:58` приходит в `bvision:0/perception_service`; точный handler пока не найден |
+| WM260 | `fpga_tang_nano_9k_card_reader-spinal/.scratch/wm260/` | `system_2.img`, `vendor_2.img`, извлечённые `dji_perception`, `dji_sec` и secure libraries | Route `10:58` приходит в `bvision:0/perception_service`; `00:E5 / 32 32 01` отвергается DJI Care dispatcher |
 | WA341 | `fpga_tang_nano_9k_card_reader-spinal/.scratch/wa341_extract/` | Извлечённый `dji_perception` | Отрицательная проверка: это не `bvision:0`, поэтому нельзя переносить его handlers на WM260 `10:58` |
 | WA234 | локальные debugdata/заметки в соседнем firmware-проекте | `.gnu_debugdata`, symbol evidence | Используется только там, где Build ID и конкретный модуль совпадают |
 | DJI Fly 1.21.4 | `FreeFCC/.scratch/` и результаты разбора в `AVATA360_4G_RESEARCH.md` | APK и `libdongle_esim_core.so` | Штатный eSIM flow использует stateful `18:4B/4C`, а не sweep `51:00..7F` |
@@ -23,6 +23,22 @@
 
 Пути выше локальные и не предназначены для коммита. Проверяемые выводы,
 Build ID и hashes переносятся в `docs/`.
+
+### WM260 security/DJI Care
+
+Файлы извлечены из локального `system_2.img`; originals не изменялись.
+
+| Файл | Размер | Build ID | SHA-256 |
+|---|---:|---|---|
+| `dji_sec` | 54 560 | `a03cde3cfd9b9ecd670d49900d54fc97` | `ea9356bec59b55e3be7da2fcc726b5a7f31320696fa044387e8842dca014b019` |
+| `libdji_secure.so` | 214 900 | `7c2ca5291a184845a8c4106aab3e86fb` | `7c99e9fc2110e7173cdbebc880ec8edb0e9a461cdf16d13189c9632562732b40` |
+| `libdji_sec_ds_whitelist_upgrade.so` | 13 916 | `a2c46940d353521da62b3ca81b3b37d7` | `0cae4e112a258f8ff04eedc173b3642391e2c8a2ec58e881f0ebc373c787cdfd` |
+
+`dji_sec` dispatcher `sys_sec_djicare_general` (`0x7384`) принимает DJI Care
+subtypes `01/02/04/09/0A/FF`; `0x32` возвращает protocol error `0xE3`.
+Упаковщики `libdji_secure.so` формируют prefixes `07 07 01`, `08 08 01`,
+`20 20 01`, `A1 A1 01`, `A2 A2 01`; ещё один локальный request использует
+`10 10 01`. Prefix FreeFCC `32 32 01` в этом корпусе не поддержан.
 
 ## RC Pro 2: зафиксированные ELF
 

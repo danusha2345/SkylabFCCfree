@@ -24,7 +24,7 @@
     { "s": 7,  "i": 25,  "d": 9,   "p": "c0",                 "note": "07:19 country query; RM510 local handler ignores request payload and returns two-byte alpha-2 country" },
     { "s": 3,  "i": 249, "d": 146, "p": "d04aeffb01",         "note": "Confirmed PM hash write: c1_regulatory_restriction=1 on bvision:4/perception_agent" },
     { "s": 3,  "i": 249, "d": 146, "p": "d04aeffb00",         "note": "Confirmed PM hash write: c1_regulatory_restriction=0 immediately after value 1" },
-    { "s": 0,  "i": 229, "d": 111, "p": "323201",             "note": "On WM260 dst 0x6f is dji_sec/sec_service and 00:E5 is DJI Care binding/pairing/status; exact subtype 0x32 semantics remain unverified" },
+    { "s": 0,  "i": 229, "d": 111, "p": "323201",             "note": "On WM260 the DJI Care dispatcher does not support subtype 0x32 and returns protocol error 0xe3 without action" },
     { "s": 3,  "i": 249, "d": 3,   "p": "236b820101",         "note": "Confirmed PM hash write: sdr_lost_prevent_never_takeoff_en=1 on flight:0" },
     { "s": 3,  "i": 249, "d": 3,   "p": "8773e68a01",         "note": "Confirmed PM hash write: sdr_lost_prevent_has_takeoff_en=1 on flight:0" },
     { "s": 6,  "i": 140, "d": 9,   "p": "000300",             "note": "Opaque 06:8C request routed to vt_air:0 (aircraft transmission MCU), with value 03; exact parameter is unverified" },
