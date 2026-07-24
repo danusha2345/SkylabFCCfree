@@ -1,6 +1,6 @@
 # Справочник DUML-команд из RM510 / DJI RC2
 
-Дата среза: 2026-07-23.
+Дата среза: 2026-07-23; обновлено 2026-07-24.
 
 Это статический справочник по командам, которые удалось восстановить из
 сохранённых userspace ELF пульта RM510, с cross-check по live DUML-потокам
@@ -51,6 +51,51 @@ scratch-копию `dji_link`: текущий контейнер имеет ра
 Build ID и кодовые адреса не изменились; в таблице сохранены размер и hash
 исходной полученной копии. Рядом оставлены производные
 `dji_link.gnu_debugdata.xz` и `dji_link.gnu_debugdata.elf`.
+
+Конфиг маршрутов RM510 `dji.json` имеет SHA-256
+`5222400c9c6a4cc747a756e7e5c7a1e9fa9f455470fd8614ec434ed7cf83589a`.
+Для aircraft-side cross-check также использованы:
+
+| Артефакт | Размер | Build ID | SHA-256 |
+|---|---:|---|---|
+| WM260 `dji.json` | 267744 | — | `849f60e02f4eb07c3cd1a1ecece4eb167deca82ab217bc48fb28dac9930b4789` |
+| WM260 `dji_perception` | 20462408 | `136fcec833fc5af8eac717e1785c38e4` | `76a08fcf22db6c9a66c9a01192bbc0984d078a5329d8d8d7f946c45fe0e90822` |
+
+## Маршрутизация `06:72`, `06:8C` и `10:58`
+
+DUML destination byte кодируется как
+`(index << 5) | (module_type & 0x1f)`. Поэтому назначения трёх ранее opaque
+групп FreeFCC можно определить независимо от их payload:
+
+| Команда | Raw destination | Symbolic host | Подтверждённый маршрут |
+|---|---:|---|---|
+| `06:72` | `0x06` | `rc:0` | RM510 `dji_link` → UART `/dev/ttyHS2`, 115200, protocol `v1` |
+| `06:8C` | `0x09` | `vt_air:0` | Air-side transmission MCU; при hybrid route RM510 передаёт через `vt_gnd:7` |
+| `10:58` | `0x12` | `bvision:0` | На WM260 локальный `perception_service`, процесс `dji_perception` |
+
+`dji_link_event_start` регистрирует локальные плотные handler tables для
+cmdsets `00`, `07` и `18`, но не для `06`. Следовательно, `dji_link` только
+пересылает `06:72`; реализация находится в отдельном RC MCU, которого нет в
+системном OTA-образе. Аналогично `vt_air:0` не равен userspace-сервисам
+`dji_sdrs_agent` (`vt_air:4`) или `dji_wlm` (`vt_air:7`): `06:8C`
+обслуживается transmission MCU на борту.
+
+Поэтому точные функции `06:72` и `06:8C` пока остаются `UNKNOWN`. Для
+подтверждения гипотезы про RC stick lock нужен firmware RC MCU или
+контролируемый live capture request/ACK; одно имя из upstream issue
+недостаточно.
+
+Для `10:58` подтверждён только конечный userspace-получатель:
+`bvision:0/perception_service` в `dji_perception`. Прямого вызова
+регистрационного helper с парой `0x10/0x58` среди 182 call sites не найдено,
+поэтому точный handler и смысл `03 01 00` остаются `UNKNOWN`.
+
+Публичный DJI midware здесь нельзя переносить буквально: `CmdSet.EYE(10)`
+означает десятичный `10`, то есть cmdset `0x0A`, а FreeFCC отправляет десятичный
+`16`, то есть `0x10`. Совпадение cmd id `0x58` и payload с
+`GetPerceptionGesture` недостаточно и было отброшено. Одинаковый `10:58` в
+начале и конце профиля также не доказывает старые противоположные действия
+«enter/exit service mode».
 
 ## `dji_wlm`
 

@@ -1,6 +1,7 @@
 # Аудит DUML-команд FreeFCC
 
-Дата среза: 2026-07-23. Базовый commit: `4cd92277e193ebe328c47cd7a81dd46d21a4726c`.
+Дата среза: 2026-07-23; обновлено 2026-07-24. Базовый commit:
+`4cd92277e193ebe328c47cd7a81dd46d21a4726c`.
 
 Этот документ отвечает на два вопроса:
 
@@ -50,8 +51,8 @@ RF-региона, GPS, LED или 4G-состояния.
 
 | № | Команда | Payload | Что известно | Уровень |
 |---:|---|---|---|---|
-| 1, 21 | `10:58` | `030100` | Одинаковый запрос стоит в начале и конце; старые подписи «вход/выход service mode» друг друга не подтверждают | `UNKNOWN` |
-| 2 | `06:72` | `00000000000100` | Радио-запрос; точный параметр и значение не декодированы | `UNKNOWN` |
+| 1, 21 | `10:58` | `030100` | Получатель `dst=0x12` — `bvision:0` / `perception_service`. Одинаковый кадр стоит в начале и конце, поэтому старые противоположные подписи «вход/выход service mode» не подтверждаются. Точный handler не восстановлен | route `CONFIRMED`; semantics `UNKNOWN` |
+| 2 | `06:72` | `00000000000100` | Получатель `dst=0x06` — `rc:0`; RM510 пересылает кадр по UART `/dev/ttyHS2` во внешний RC MCU. Точный handler и значение не декодированы | route `CONFIRMED`; semantics `UNKNOWN` |
 | 3 | `03:F9` | `8a237103f401` | Hash `0x0371238a`, значение LE `0x01f4` = 500: запись `max_height`; это побочный flight-limit write, а не FCC primitive | `CONFIRMED` |
 | 4 | `00:00` | `000001` | Общий запрос к `dst=0x1f`; точная функция не установлена | `UNKNOWN` |
 | 5 | `00:32` | `3131000000` | В WM260 `dst=0x6F` — `dji_sec/sec_service` (`s_to_p_air:3`). Aircraft handler принимает `0x31` и возвращает 59-байтное состояние активации; четыре последующих request bytes в этой ветке не используются. Это query, не FCC-write | `CONFIRMED` для WM260 |
@@ -61,17 +62,55 @@ RF-региона, GPS, LED или 4G-состояния.
 | 10 | `09:27` | `00026300ffff0300000000` | SDR assistant write: address `0xffff0063`, value `3`; это register write, но точный эффект value `3` не установлен | `CONFIRMED` для register/value, эффект `UNKNOWN` |
 | 11 | `07:18` | `ff415500` | Запись country/area с `AU`; prefix `ff` и route зависят от реализации | `CONFIRMED` для family |
 | 12 | `07:19` | `c0` | RM510 handler не читает request payload, а возвращает 2-byte alpha-2 country из vendor slot `6`; `c0` в этой реализации игнорируется | `CONFIRMED` для локального handler contract |
-| 13, 14 | `03:F9` | `d04aeffb01/00` | Запись неизвестного hash `0xfbef4ad0` в `1`, затем `0` | `CONFIRMED` для hash/value, имя `UNKNOWN` |
+| 13, 14 | `03:F9` | `d04aeffb01/00` | Hash `0xfbef4ad0` = `c1_regulatory_restriction`; запись `1`, затем сразу `0` в `bvision:4/perception_agent`. Имя находится в FocusTrack-контексте WM260; точный эффект импульса `1→0` не декодирован | name/hash/value/route `CONFIRMED`; effect `UNKNOWN` |
 | 15 | `00:E5` | `323201` | В WM260 получатель `dst=0x6F` — `dji_sec/sec_service`; `00:E5` обслуживает DJI Care binding/pairing/status. Точный смысл subtype `32 32 01` не восстановлен, но признаков прямого RF/FCC-действия нет | target/family `CONFIRMED`; subtype `UNKNOWN` |
-| 16 | `03:F9` | `236b820101` | Запись неизвестного hash `0x01826b23` в `1` | `CONFIRMED` для hash/value, имя `UNKNOWN` |
-| 17 | `03:F9` | `8773e68a01` | Запись неизвестного hash `0x8ae67387` в `1` | `CONFIRMED` для hash/value, имя `UNKNOWN` |
-| 18, 19 | `06:8C` | `000300`, `000100` | Два opaque radio request; параметр не декодирован | `UNKNOWN` |
-| 20 | `06:72` | `000000000001ff` | Радио-запрос; старая подпись «commit» не подтверждена | `UNKNOWN` |
+| 16 | `03:F9` | `236b820101` | Hash `0x01826b23` = `sdr_lost_prevent_never_takeoff_en`; boolean write `1` в `flight:0`. В таблицах Air 3S/Mavic 4 default уже равен `1` | `CONFIRMED` |
+| 17 | `03:F9` | `8773e68a01` | Hash `0x8ae67387` = `sdr_lost_prevent_has_takeoff_en`; boolean write `1` в `flight:0`. В таблицах Air 3S/Mavic 4 default уже равен `1` | `CONFIRMED` |
+| 18, 19 | `06:8C` | `000300`, `000100` | Получатель `dst=0x09` — `vt_air:0`, то есть air-side transmission MCU. Linux/userspace handler в доступном WM260 образе отсутствует; точный параметр не декодирован | route `CONFIRMED`; semantics `UNKNOWN` |
+| 20 | `06:72` | `000000000001ff` | Тот же маршрут к `rc:0` через `/dev/ttyHS2`; старая подпись «commit» не подтверждена | route `CONFIRMED`; semantics `UNKNOWN` |
 
 Главный непосредственно распознанный FCC-write здесь — первый `09:27`
-`setForceFcc`. Country-команды также реально меняют country/area state, но
-полный RF-эффект составного профиля необходимо проверять графиком Transmission
-или независимым RF/readback evidence.
+`setForceFcc`. Country-команды также реально меняют country/area state.
+Два `sdr_lost_prevent_*` оказались штатными flight-safety flags, а
+`c1_regulatory_restriction` относится к perception/FocusTrack. Семантика
+`10:58`, `06:72` и `06:8C` всё ещё не доказана. Полный RF-эффект составного
+профиля необходимо проверять графиком Transmission или независимым
+RF/readback evidence.
+
+### Как восстановлены маршруты и PM-хэши
+
+DUML destination byte кодируется как
+`(index << 5) | (module_type & 0x1f)`. Таблицы маршрутов RM510 и WM260 дают
+следующее сопоставление:
+
+| Кадры | Destination | Получатель | Где находится handler |
+|---|---:|---|---|
+| `06:72` | `0x06` | `rc:0` | Внешний RC MCU за `/dev/ttyHS2`, protocol `v1`; не Android `dji_link` |
+| `06:8C` | `0x09` | `vt_air:0` | Air-side transmission MCU; не `dji_wlm` (`vt_air:7`) и не `dji_sdrs_agent` (`vt_air:4`) |
+| `10:58` | `0x12` | `bvision:0` | WM260 `dji_perception` / `perception_service` |
+| `03:F9 d04aeffb…` | `0x92` | `bvision:4` | WM260 `dji_perception` / `perception_agent` |
+| остальные `03:F9` | `0x03` | `flight:0` | Flight controller parameter manager |
+
+В `dji_link_event_start` локальные RM510 handler tables создаются для cmdsets
+`00`, `07` и `18`; cmdset `06` туда не входит. Поэтому issue-гипотеза
+«`06:72` — RC stick lock» остаётся правдоподобной, но не подтверждённой
+имеющимся userspace: для доказательства нужен firmware RC MCU либо live
+request/ACK capture с контролируемым состоянием стиков.
+
+Хэши `03:F9` проверены тем же алгоритмом, который восстановлен из
+`compute_hash_value_by_name` в DJI firmware:
+
+```text
+hash(name) = fold(name + "_0", h = ((h << 8) | byte) mod 0xfffffffb)
+```
+
+Все три совпадения точные:
+
+| Hash | Имя |
+|---:|---|
+| `0xfbef4ad0` | `c1_regulatory_restriction` |
+| `0x01826b23` | `sdr_lost_prevent_never_takeoff_en` |
+| `0x8ae67387` | `sdr_lost_prevent_has_takeoff_en` |
 
 ## Пятисекундный periodic-профиль
 
@@ -79,16 +118,17 @@ RF-региона, GPS, LED или 4G-состояния.
 
 | Команда | Payload | Статус |
 |---|---|---|
-| `10:58` | `030100` | `UNKNOWN`; первый и последний кадры идентичны |
-| `06:72` | `00000000000100` | `UNKNOWN` |
-| `06:72` | `000000000001ff` | `UNKNOWN` |
-| `10:58` | `030100` | `UNKNOWN`; идентичен первому |
+| `10:58` | `030100` | Route к `bvision:0/perception_service` подтверждён; handler semantics `UNKNOWN` |
+| `06:72` | `00000000000100` | Route к RC MCU подтверждён; handler semantics `UNKNOWN` |
+| `06:72` | `000000000001ff` | Route к RC MCU подтверждён; handler semantics `UNKNOWN` |
+| `10:58` | `030100` | Тот же opaque request |
 
-При периоде 5 секунд это 48 DUML writes в минуту и 2880 в час. CPU-трафик
-невелик, но цикл постоянно будит процесс, открывает транспортные операции и
-пишет четыре команды с недоказанной необходимостью. Поэтому periodic mode
-оставлен отдельным явно выбираемым режимом; Home Point mode вместо этого
-пассивно слушает telemetry и применяет полный профиль по событию.
+При периоде 5 секунд это 48 DUML requests в минуту и 2880 в час. CPU и трафик
+невелики, но цикл постоянно будит процесс и transport; половина кадров при этом
+дублирует один и тот же `10:58`, а два `06:72` обращаются к RC MCU с пока
+недоказанной необходимостью. Поэтому periodic mode оставлен отдельным явно
+выбираемым режимом; Home Point mode вместо этого пассивно слушает telemetry и
+применяет полный профиль по событию.
 
 ## Остальные команды приложения
 
