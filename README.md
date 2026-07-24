@@ -60,8 +60,8 @@ archive. The guide uses `01_PackageInstaller`, `02_FileManager`, and
 
 > `01_PackageInstaller` and `02_FileManager` are DJI-signed copies of the
 > controller's Android system packages. `03_ATVLauncher` is a third-party
-> launcher. The archive's full redistribution provenance and third-party
-> licensing are not documented in this repository yet; review it before use.
+> launcher. Exact hashes, OTA matches and the remaining redistribution caveat
+> are documented in [Helper APK provenance](docs/HELPER_APK_PROVENANCE.md).
 
 ## Compatibility
 
@@ -268,6 +268,18 @@ is cached for display, but 4G requires a freshly observed current-aircraft
 identity.
 
 The `/duss/mb/0x205` pre-check proves only local route availability. It does not distinguish an external Cellular Dongle from an integrated eSIM module and does not validate model-specific payload semantics.
+
+New static evidence from the previously downloaded RC Pro 2 build 139 and 576
+shows that `0x205` is the local DUSS router, destination `0xEE` reaches
+ground-side `dji_wlm`, and its registered `0x51` table covers only IDs
+`00..51`. Handler `51:1A` has an SDR-only liveview branch for the leading zeros
+used by this profile, while IDs `52..7F` lie outside the table. The user's live
+send of the complete sweep produced no visible effect. These findings do not
+prove danger or activation; they bound the profile as an unverified experiment.
+See [Avata 360/4G research](docs/AVATA360_4G_RESEARCH.md) and the
+[local firmware corpus](docs/FIRMWARE_CORPUS.md). The active RC Pro 2
+`0x51` handlers are listed separately in the
+[RC Pro 2 DUML command reference](docs/RC_PRO2_DUML_COMMAND_REFERENCE.md).
 
 Live USB/AT evidence for the tested Fibocom physical-SIM modem and the dual-
 function Quectel/eSIM unit is kept separately in

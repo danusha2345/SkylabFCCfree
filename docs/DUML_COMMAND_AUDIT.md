@@ -141,15 +141,20 @@ hash(name) = fold(name + "_0", h = ((h << 8) | byte) mod 0xfffffffb)
 | GPS read | wrapped `03:F8`, hash `829542c5` | Текущее byte value `0/1` | `CONFIRMED` |
 | GPS write | wrapped `03:F9`, `829542c500/01` | Пять bounded writes, затем новый `03:F8` read | `CONFIRMED` для protocol; physical persistence отдельно не доказана |
 | Home Point | passive wrapped push `03:44` | Долгоживущее read-only соединение; `home_state` bit 0 сигнализирует запись Home Point | `CONFIRMED` на проверенном RC2/Avata layout |
-| 4G | abstract Unix `/duss/mb/0x205`, `51:00..7F` | 128 fire-and-forget кадров `000000 + ASCII(serial)`, без ACK/readback | Формат `CONFIRMED`, activation semantics `UNKNOWN` |
+| 4G legacy sweep | abstract Unix `/duss/mb/0x205`, `51:00..7F` | `0x205` — local router; destination `0xEE` приходит в `dji_wlm`. Таблица имеет только ID `00..51`; `51:1A` имеет SDR-only liveview branch, а `52..7F` не имеют table slots. В пользовательском live-тесте sweep не дал видимого эффекта | Структура `CONFIRMED`; activation не подтверждена, наблюдаемый эффект `NEGATIVE` |
 
 В persistent Home Point mode при разрыве потока приложение снова подключается
 с задержкой 5 секунд и продолжает ждать следующую запись Home Point. Пока оно
 ждёт, DUML-запросы не отправляются: читается уже существующая telemetry.
 
 Штатный eSIM flow, найденный в DJI Fly 1.21.4, использует семейство
-`18:4B/4C`. Поэтому текущий sweep `51:00..7F` нельзя называть эквивалентом
-штатной активации встроенной eSIM без отдельного live-подтверждения.
+`18:4B/4C`. Дополнительный разбор ранее скачанных RC Pro 2 build 139 и 576
+показал, что текущий sweep `51:00..7F` не просто не имеет readback: `51:1A`
+разбирает ведущие нули как `SERVICE_LIVEVIEW + LIVEVIEW_SDR`, а 46 старших ID
+находятся вне зарегистрированной таблицы. При этом реальная отправка всего
+sweep, выполненная пользователем, не дала видимого эффекта. Поэтому профиль
+сохраняется только как явно названный legacy research sweep, а не как
+доказанная 4G activation.
 
 RM510 firmware отдельно раскрыла один ID, попадающий внутрь sweep:
 исходящий `51:14` от `dji_wlm` — это не activation response, а переменный
