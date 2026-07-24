@@ -16,14 +16,72 @@
 | DJI RC/RM510 | `fpga_tang_nano_9k_card_reader-spinal/.scratch/rc_rm510_20260723/` | `dji_wlm`, `dji_link`, `dji_sdrs_agent`, `libduml_frwk.so`, `libwlm.so`, `dji.json`, debugdata | Маршрутизация DUML, `09:EC`, `51:14` и часть link/control handlers |
 | DJI RC Pro 2/RC520 | `FreeFCC/.scratch/rcpro2_4g_ota/` | Android OTA v139/v400/v440/v576, извлечённые system/vendor roots, ELF и configs | Владелец route `0xEE`, таблица `0x51`, точная семантика `51:1A`, LTE/WLM host IDs |
 | WM260 | `fpga_tang_nano_9k_card_reader-spinal/.scratch/wm260/` | `system_2.img`, `vendor_2.img`, извлечённые `dji_perception`, `dji_sys`, `dji_sec`, route config и secure libraries | Route `10:58` приходит в `bvision:0/perception_service`; `03:AF` уходит по ICC в flight MCU; `00:E5 / 32 32 01` отвергается DJI Care dispatcher |
-| WA341 | `fpga_tang_nano_9k_card_reader-spinal/.scratch/wa341_extract/` | Извлечённые `dji_perception`, `dji_sys` | `dji_perception` не является WM260 `bvision:0`; `dji_sys` независимо подтверждает `00:00` как payload-echo device ping |
-| WA234 | локальные debugdata/заметки в соседнем firmware-проекте | `.gnu_debugdata`, symbol evidence | Используется только там, где Build ID и конкретный модуль совпадают |
+| WA341 (ранее извлечённый набор) | `fpga_tang_nano_9k_card_reader-spinal/.scratch/wa341_extract/` | Извлечённые `dji_perception`, `dji_sys` | `dji_perception` не является WM260 `bvision:0`; `dji_sys` независимо подтверждает `00:00` как payload-echo device ping |
+| WA234 (ранее извлечённый набор) | локальные debugdata/заметки в соседнем firmware-проекте | `.gnu_debugdata`, symbol evidence | Используется только там, где Build ID и конкретный модуль совпадают |
+| WA530 V01.00.0300 | `FreeFCC/.scratch/wa530_0300/` | Android 9 OTA, system/vendor, SquashFS, ELF и route configs | Aircraft-side `09:EC`, современная маршрутизация `bvision:0`, `flight:0` и `vt_air:0`; MCU images внутри OTA зашифрованы |
+| WA234 V01.00.1600 | `Downloads/V01.00.1600_wa234_dji_system.bin` | Внешний tar и IMaH headers | Все модули требуют неизвестный `STUE`; `0105/LCPU` найден, но остаётся шифротекстом |
+| WA341 V01.00.0700 | `Downloads/V01.00.0700_wa341_dji_system.bin` | Внешний tar и IMaH headers | Основные модули требуют неизвестный `STUE`; ни один опубликованный вариант `UFIE` не расшифровал `1502` с корректной checksum |
 | DJI Fly 1.19.4 | `Projects_and_coding/dji_fly/FCCDJIFly_1.19.4_1085_v1.19.4.11.apk` | AppGuard APK и embedded `libdatajar.so` | Client metadata содержит `GetAreaCode` и `GetPerceptionGesture`, но защищённый DEX не даёт переносить эти имена на произвольную wire-пару |
 | DJI Fly 1.21.4 | `FreeFCC/.scratch/` и результаты разбора в `AVATA360_4G_RESEARCH.md` | APK и `libdongle_esim_core.so` | Штатный eSIM flow использует stateful `18:4B/4C`, а не sweep `51:00..7F` |
 | Live captures | `FreeFCC/.scratch/` | LAN JSON/JSONL, OpenFCC logs, bounded captures | Runtime evidence хранится отдельно от статически восстановленной семантики |
 
 Пути выше локальные и не предназначены для коммита. Проверяемые выводы,
 Build ID и hashes переносятся в `docs/`.
+
+## Новые полные пакеты WA234, WA530 и WA341
+
+Целостность фиксируется по исходным файлам из `Downloads`; производные файлы
+в `.scratch/` в git не входят.
+
+| Платформа | Пакет | Размер | SHA-256 | Результат распаковки |
+|---|---|---:|---|---|
+| WA234 | `V01.00.1600_wa234_dji_system.bin` | 620 943 360 | `2b4c6d2d2a96702e1a2b19fd250669c553e7ef460837b2de94b96e7d1b95c7b3` | Внешний tar корректен; семь модулей имеют `enc_key=STUE` |
+| WA530 | `V01.00.0300_wa530_dji_system.bin` | 894 279 680 | `49aed631cfc8e6d87c7fde67bc853620642e3e76bc97cb45fe8bec855f7db783` | Android-модуль `0802/E4` не зашифрован и извлечён; вложенные `normal.img`, `scp.img`, `tos.img` требуют неизвестный `STBE` |
+| WA341 | `V01.00.0700_wa341_dji_system.bin` | 932 003 840 | `6c820bcb73a6667d6c1ecbcfca70a58a99042d15c0b6b225e5e3822f3abdf68d` | `0105/0802/1100/1200/1202` требуют `STUE`; модуль `1502/V1` требует `UFIE`, но варианты `2018-01`…`2021-08` не проходят plaintext checksum |
+
+Каталог `decrypted/` у WA234 и WA341 содержит результаты принудительного
+извлечения. Это не валидный plaintext: инструмент прямо сообщает
+`Cannot find enc_key 'STUE'` либо несовпадение decrypted checksum. Такие файлы
+не использовались для поиска команд, строк или обработчиков.
+
+### WA530 V01.00.0300: проверенные ELF
+
+Android OTA идентифицирует платформу как
+`e4/eagle4_wa530/eagle4_wa530:9/...:userdebug/test-keys`.
+
+| Файл | Размер | Build ID | SHA-256 |
+|---|---:|---|---|
+| `dji_sys` | 1 479 720 | `6bc988b559ac281f97ea476ea2451c09` | `ef7375933a5783b3891c0f9be4654e951beeea5674e25569569c79d4b8037874` |
+| `dji_wlm` | 2 279 160 | `44cbbdf500c75ce413333428c435b78d` | `66da35f73a67bddffb9bcd7564c7b7ff5ac1401fe68703f8476426637a9ce593` |
+| `dji_sdrs_agent` | 402 680 | `e8209d85bf4392420fff524453d09a3f` | `57d4d3034e832c9b8d69533a6b6bedb3a9e0c12cc2934c31eae491f9e53e211b` |
+| `dji_perception` | 75 631 600 | `178fb158bd131f48032b52e0df45104fd8933a61` | `0d7b9498629c13b18c514afd873a99d70a149e9bd378c15660b89cd64aae0f80` |
+| `dji_lte` | 2 436 736 | `d3568587bc0aea999958bd64db633f21` | `deecd266cdff0a118988cb78b4d425113402381756219651eff4ea457b0a2cef` |
+| `dji_network` | 1 077 880 | `c98f49efc2da2ae85ba8f5d021d7b2dd` | `c71bf1529adb45ae29ee1aa0cb6c43b932e34b6453b70e068e6b1e3c520ff7c8` |
+
+`dji.json` имеет SHA-256
+`db56b4836a6cd683369f0d1fa7fc91227310109f319c3b2ff52680295d112e86`,
+`router.json` —
+`8370c953e24f4a723ff49529e36c8f7c6e20e8a6b4b74db73a8910f95fdfff78`.
+Route channel 3 использует ICC `/dev/icc_dev`: `flight:0`, `battery:0`, ESC,
+gimbal, `camera:5`, `gps:3` и `cboard:0` находятся за этим маршрутом.
+Локальные Linux services включают `bvision:0` (`dji_perception`), `vt_air:4`
+(`dji_sdrs_agent`), `vt_air:7` (`dji_wlm`) и `ve_air:6` (`dji_lte`).
+`vt_air:0` остаётся отдельным topology node, поэтому его нельзя подменять
+`dji_wlm` или `dji_sdrs_agent`.
+
+В `dji_wlm` функция `wlm_lk_ctrl_set_sdr_param` (`0x17dde0`) формирует
+`09:EC`. Строки и control flow различают Wi-Fi 2,4/5,8 ГГц и выбирают payload
+`00 03` для `silence SDR 2.4G`, `00 04` для `silence SDR 5.8G`, `00 00` для
+обычной/reset-ветки. `wlm_event_send_sync` (`0x15e620`) вызывается максимум
+три раза при ошибке. Это независимое aircraft-side подтверждение прежнего
+вывода по RM510.
+
+В новом `dji_perception` строки `gesture_control_enable`,
+`gesture_control_support` и `gesture_control_state` входят в таблицу параметров
+`CapGestureCtrl`. Они не являются регистрацией DUML `10:58`. Найденный generic
+callback registrar (`0x1b36e0c`) имеет явные direct registrations `03:AA`,
+`06:50`, `0A:F0`, `00:01`; пары `10:58` среди них нет. Поэтому точный handler
+и значение payload `03 01 00` остаются `UNKNOWN`.
 
 ### DJI Fly 1.19.4: граница client-side metadata
 
@@ -124,16 +182,16 @@ Manifest содержит обычные Android/Qualcomm partitions: `abl`, `ao
 | Вопрос | Статус | Почему не закрыт |
 |---|---|---|
 | Точная функция `06:72` | `NEGATIVE` | Route до RC MCU через `/dev/ttyHS2` найден, но firmware самого получателя отсутствует |
-| Точная функция `06:8C` | `NEGATIVE` | Route до `vt_air:0` найден, но firmware воздушного transmission MCU отсутствует |
+| Точная функция `06:8C` | `NEGATIVE` | Route до `vt_air:0` найден; WA234/WA341 содержат возможный кандидат `0105/LCPU`, но он зашифрован неизвестным `STUE` |
 | Эффект `09:27 / 0xffff0063=3` | `NEGATIVE` | Register/value и route до `vt_air:0` известны, но firmware принимающего transmission MCU отсутствует |
 | Точная функция `03:AF` | `NEGATIVE` | Route до `flight:0` через ICC найден, но firmware flight-controller MCU отсутствует; Linux `dji_sys` только router |
-| Точная функция WM260 `10:58` | `UNKNOWN` | Получатель `bvision:0/perception_service` доказан, но registration/handler в имеющемся `dji_perception` пока не локализован |
+| Точная функция `10:58` | `UNKNOWN` | Получатель `bvision:0/perception_service` доказан на WM260 и WA530; registration/handler не локализован, а WA530 gesture parameters не являются DUML registration |
 | Avata 360 aircraft-side eSIM handler | `ABSENT` | Отдельного Avata 360 eMMC/firmware dump в локальном корпусе нет |
 
 `NEGATIVE` здесь означает не «команды нет», а «после проверки точного
 получателя нужного исполняемого firmware в имеющемся корпусе нет». Закрыть
-`03:AF`, `06:72`, `06:8C` и эффект `0xffff0063` дальнейшим анализом Android
-OTA невозможно без другого уже имеющегося или нового firmware
+`03:AF`, `06:72`, `06:8C` и эффект `0xffff0063` дальнейшим анализом открытой
+части Android OTA невозможно без ключей `STUE`/`STBE` либо другого firmware
 микроконтроллера. `10:58` отличается: его receiver ELF есть, поэтому это
 оставшаяся задача статического анализа, а не пробел корпуса.
 

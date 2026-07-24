@@ -91,7 +91,7 @@ DUML destination byte кодируется как
 | `03:AF` | `0x03` | `flight:0` | Flight-controller MCU за WM260 ICC `/dev/icc_dev`, channel `ap0-mcu0-1.0` / `mcu0-ap0-1.0` |
 | `06:72` | `0x06` | `rc:0` | Внешний RC MCU за `/dev/ttyHS2`, protocol `v1`; не Android `dji_link` |
 | `06:8C` | `0x09` | `vt_air:0` | Air-side transmission MCU; не `dji_wlm` (`vt_air:7`) и не `dji_sdrs_agent` (`vt_air:4`) |
-| `10:58` | `0x12` | `bvision:0` | WM260 `dji_perception` / `perception_service` |
+| `10:58` | `0x12` | `bvision:0` | WM260 и WA530: локальный `dji_perception` / `perception_service` |
 | `03:F9 d04aeffb…` | `0x92` | `bvision:4` | WM260 `dji_perception` / `perception_agent` |
 | остальные `03:F9` | `0x03` | `flight:0` | Flight controller parameter manager |
 
@@ -138,7 +138,7 @@ hash(name) = fold(name + "_0", h = ((h << 8) | byte) mod 0xfffffffb)
 | `09:27 / ffff0063=3` | Register/value и route до `vt_air:0` доказаны | Firmware air transmission MCU |
 | `06:72` | Route до RC MCU доказан | Firmware RC MCU |
 | `06:8C` | Route до air transmission MCU доказан | Firmware air transmission MCU |
-| `10:58 / 030100` | Receiver `bvision:0/perception_service` присутствует локально, но registration не локализована | Более глубокий разбор WM260 `dji_perception` либо соответствующий request/ACK |
+| `10:58 / 030100` | Receiver `bvision:0/perception_service` присутствует в WM260 и WA530, но registration не локализована; WA530 `gesture_control_*` — параметры, не DUML handler | Дальнейший разбор callback path либо соответствующий request/ACK |
 
 Для `00:00` использован WA341 `dji_sys` (Build ID
 `ed5cc566fae4ef008a19727014ca2c00`, SHA-256
@@ -211,7 +211,7 @@ aircraft serial. Совпадение serial и command ID со sweep поэто
 
 | Команда | Что найдено | Вывод |
 |---|---|---|
-| `09:EC` | В RM510 `dji_wlm`, Build ID `e14a06545de716c6332364c4c46cfa21`, функция `wlm_lk_ctrl_set_sdr_param` по адресу `0x6450c`. Перед отправкой до трёх раз запрашивает `09:21`; затем до трёх попыток `09:EC`. Payload `00 03` соответствует silence SDR 2.4G, `00 04` — silence SDR 5.8G, `00 00` — обычной/reset-ветке | Это событийная Wi-Fi/SDR coexistence-настройка. Фиксированного таймера 10 секунд не найдено; добавлять её в keepalive оснований нет |
+| `09:EC` | RM510: `dji_wlm`, Build ID `e14a06545de716c6332364c4c46cfa21`, `wlm_lk_ctrl_set_sdr_param` `0x6450c`. WA530: Build ID `44cbbdf500c75ce413333428c435b78d`, та же функция `0x17dde0`. Обе реализации выбирают `00 03` = silence SDR 2.4G, `00 04` = silence SDR 5.8G, `00 00` = обычная/reset-ветка и повторяют send до трёх раз | Cross-generation и ground/air evidence подтверждает событийную Wi-Fi/SDR coexistence-настройку. Фиксированного таймера не найдено; добавлять её в keepalive оснований нет |
 | `06:77` | Один passive frame на `40009`, route `0x06 → App`, payload `00`; обработчик в проверенных RM510 userspace-бинарниках не найден | Это наблюдаемая RC telemetry/status, но точная семантика и тезис о периоде 2.5 секунды не подтверждены |
 
 Подробные адреса вызовов и остальные команды из этих ELF находятся в

@@ -61,6 +61,8 @@ Build ID и кодовые адреса не изменились; в табли
 | WM260 `dji.json` | 267744 | — | `849f60e02f4eb07c3cd1a1ecece4eb167deca82ab217bc48fb28dac9930b4789` |
 | WM260 `dji_perception` | 20462408 | `136fcec833fc5af8eac717e1785c38e4` | `76a08fcf22db6c9a66c9a01192bbc0984d078a5329d8d8d7f946c45fe0e90822` |
 | WA341 `dji_sys` | 1742280 | `ed5cc566fae4ef008a19727014ca2c00` | `beb09425c85e5725aef7a29971dfc18b2d7e93102f3ad2a706dce1be5c958234` |
+| WA530 `dji_wlm` | 2279160 | `44cbbdf500c75ce413333428c435b78d` | `66da35f73a67bddffb9bcd7564c7b7ff5ac1401fe68703f8476426637a9ce593` |
+| WA530 `dji_perception` | 75631600 | `178fb158bd131f48032b52e0df45104fd8933a61` | `0d7b9498629c13b18c514afd873a99d70a149e9bd378c15660b89cd64aae0f80` |
 
 ## Маршрутизация opaque-команд полного FCC-профиля
 
@@ -74,7 +76,7 @@ DUML destination byte кодируется как
 | `03:AF` | `0x03` | `flight:0` | WM260 `dji_sys` → ICC `/dev/icc_dev`, send `ap0-mcu0-1.0`, receive `mcu0-ap0-1.0`, protocol `v1` |
 | `06:72` | `0x06` | `rc:0` | RM510 `dji_link` → UART `/dev/ttyHS2`, 115200, protocol `v1` |
 | `06:8C` | `0x09` | `vt_air:0` | Air-side transmission MCU; при hybrid route RM510 передаёт через `vt_gnd:7` |
-| `10:58` | `0x12` | `bvision:0` | На WM260 локальный `perception_service`, процесс `dji_perception` |
+| `10:58` | `0x12` | `bvision:0` | На WM260 и WA530 локальный `perception_service`, процесс `dji_perception` |
 
 `dji_link_event_start` регистрирует локальные плотные handler tables для
 cmdsets `00`, `07` и `18`, но не для `06`. Следовательно, `dji_link` только
@@ -99,9 +101,12 @@ cmdsets `00`, `07` и `18`, но не для `06`. Следовательно, `
 broadcast ping, а не изменение региона, activation или FCC primitive.
 
 Для `10:58` подтверждён только конечный userspace-получатель:
-`bvision:0/perception_service` в `dji_perception`. Прямого вызова
-регистрационного helper с парой `0x10/0x58` среди 182 call sites не найдено,
-поэтому точный handler и смысл `03 01 00` остаются `UNKNOWN`.
+`bvision:0/perception_service` в `dji_perception`. В WM260 прямого вызова
+регистрационного helper с парой `0x10/0x58` среди 182 call sites не найдено.
+В WA530 параметры `gesture_control_*` принадлежат `CapGestureCtrl`, а найденный
+generic callback registrar явно регистрирует только `03:AA`, `06:50`,
+`0A:F0`, `00:01`. Поэтому точный handler и смысл `03 01 00` остаются
+`UNKNOWN`.
 
 Публичный DJI midware здесь нельзя переносить буквально: `CmdSet.EYE(10)`
 означает десятичный `10`, то есть cmdset `0x0A`, а FreeFCC отправляет десятичный
@@ -130,11 +135,14 @@ WM260 receiver handler.
 | `51:0C` | `PUSH` | `wlm_link_state_manage_task` | `0x5b910` | Фиксированный 10-байтный local all-link-mode/composite-link-state report | `CONFIRMED` по data flow |
 | `51:14` | `PUSH` | `wlm_link_state_manage_task` | `0x5b6dc` | Переменный neighbour/device-link list: `2 + 49 × N` байт | `CONFIRMED` по data flow и live length |
 | `09:21` | `QUERY` | `wlm_lk_ctrl_set_sdr_param` | `0x645bc`, `0x64620`, `0x64684` | Получение текущего SDR/link состояния; до трёх попыток | `CONFIRMED` для control flow |
-| `09:EC` | `SEND` | `wlm_lk_ctrl_set_sdr_param` | `0x64900`, `0x64974`, `0x649e8` | Wi-Fi/SDR coexistence: `00 03` silence SDR 2.4G, `00 04` silence SDR 5.8G, `00 00` reset/ordinary branch; до трёх попыток при ошибке | `CONFIRMED` |
+| `09:EC` | `SEND` | `wlm_lk_ctrl_set_sdr_param` | RM510 `0x64900`, `0x64974`, `0x649e8`; WA530 sender `0x15e620` из функции `0x17dde0` | Wi-Fi/SDR coexistence: `00 03` silence SDR 2.4G, `00 04` silence SDR 5.8G, `00 00` reset/ordinary branch; до трёх попыток при ошибке | `CONFIRMED`, независимо на ground и air |
 | `18:35` | `SEND` | `wlm_select_upgrade_case`; `wlm_capture_dongle_log` | `0x71334`, `0x71564` | Один multiplexed diagnostic/control ID к host `0x0e06`; upgrade-case и capture dongle log различаются payload/action | `CONFIRMED` по двум функциям, payload layout частичный |
 
 `09:EC` вызывается событийно при переключении coexistence/частот. Жёсткого
-цикла «каждые 10 секунд» в этой функции не найдено.
+цикла «каждые 10 секунд» в этой функции не найдено. WA530 независимо
+подтверждает этот contract: строки в `dji_wlm` прямо называют Wi-Fi band
+2G/5G/auto и ветви `silence sdr 2.4G` / `silence sdr 5.8G`, после чего
+`wlm_event_send_sync` повторяется не более трёх раз.
 
 ### Link-state payload `51:0C` и `51:14`
 
