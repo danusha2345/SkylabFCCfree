@@ -69,6 +69,7 @@ data class AppState(
     // Keepalive state
     val isKeepaliveRunning: Boolean = false,
     val selectedAutoMode: AutoFccMode? = null,
+    val selectedFccRegion: FccRegion = FccRegion.DEFAULT,
     // Opt-in LAN diagnostic bridge state
     val isLanLogStarting: Boolean = false,
     val lanLogUrl: String = "",
@@ -227,6 +228,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     private val preferenceListener = SharedPreferences.OnSharedPreferenceChangeListener { _, key ->
         when (key) {
             AutoFccSelection.PREF_MODE -> refreshAutoFccSelection()
+            FccRegionSelection.PREF_REGION -> refreshFccRegionSelection()
             PREF_AIRCRAFT_MODEL_CODE,
             PREF_AIRCRAFT_MODEL_NAME,
             PREF_AIRCRAFT_MODEL_AT -> refreshAircraftModelIdentity()
@@ -419,6 +421,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         initialized = true
         val model = try { Build.DEVICE } catch (_: Exception) { "unknown" }
         val selectedAutoMode = AutoFccSelection.load(app)
+        val selectedFccRegion = FccRegionSelection.load(app)
         prefs.edit().remove("auto_fcc").apply()
         // v1.5.12 and earlier persisted a write as if it were current FCC
         // state. Ignore and remove that stale cross-process evidence.
@@ -446,6 +449,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 isConnected = connected,
                 isKeepaliveRunning = liveMonitor,
                 selectedAutoMode = selectedAutoMode,
+                selectedFccRegion = selectedFccRegion,
                 isFccEnabled = runtime.lastSuccessfulWriteAtMs != null,
                 fccLastWriteAtMs = runtime.lastSuccessfulWriteAtMs,
                 message = when {
@@ -650,11 +654,12 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
     // --- FCC ---
 
     /**
-     * Reads the country, writes and verifies AU only when needed, then sends
+     * Reads the country, writes and verifies the selected region only when needed, then sends
      * the reduced 14-frame FCC core profile.
      * The core profile runs 2 rounds internally for reliability.
      */
     fun enableFcc(): Boolean {
+        val targetRegion = FccRegionSelection.load(app)
         val hardwareLease = beginHardwareOp()
         if (hardwareLease == null) {
             log("Hardware busy — please wait for the current operation to finish.")
@@ -673,14 +678,19 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         }
         UsageStatistics.recordAction(app, UsageAction.MANUAL_FCC)
         update { copy(status = "applying", isBusy = true, busyProgress = 0f, message = "Sending FCC request...") }
-        log("Sending FCC request...")
+        log("Sending FCC request for region ${targetRegion.countryCode}...")
 
         runOnIO {
             try {
-                val countryResult = FccCountryRegion.ensure(transport, effectivePort)
+                val countryResult = FccCountryRegion.ensure(
+                    transport,
+                    effectivePort,
+                    targetRegion.countryCode
+                )
                 val observedCountry = countryResult.observedCountry ?: "unknown"
                 log(
-                    "FCC country: initial=${countryResult.initialCountry ?: "unknown"}, " +
+                    "FCC country: target=${countryResult.targetCountry}, " +
+                        "initial=${countryResult.initialCountry ?: "unknown"}, " +
                         "writes=${countryResult.writeAttempts}, " +
                         "write_ack=${countryResult.writeAckMatched}, " +
                         "read=${countryResult.readCompleted}, " +
@@ -721,9 +731,9 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         copy(
                             status = "fcc_written",
                             message = if (countryResult.verified) {
-                                "Region AU verified; FCC request written — verify RF mode in DJI Fly"
+                                "Region ${targetRegion.countryCode} verified; FCC request written — verify RF mode in DJI Fly"
                             } else {
-                                "Region AU not confirmed ($observedCountry); FCC request written — verify in DJI Fly"
+                                "Region ${targetRegion.countryCode} not confirmed ($observedCountry); FCC request written — verify in DJI Fly"
                             },
                             isFccEnabled = true,
                             isBusy = false,
@@ -827,6 +837,19 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         val selected = AutoFccSelection.load(app)
         if (_state.value.selectedAutoMode != selected) {
             update { copy(selectedAutoMode = selected) }
+        }
+    }
+
+    fun setFccRegion(region: FccRegion) {
+        FccRegionSelection.save(app, region)
+        update { copy(selectedFccRegion = region) }
+        log("Selected FCC region: ${region.displayLabel}")
+    }
+
+    fun refreshFccRegionSelection() {
+        val selected = FccRegionSelection.load(app)
+        if (_state.value.selectedFccRegion != selected) {
+            update { copy(selectedFccRegion = selected) }
         }
     }
 

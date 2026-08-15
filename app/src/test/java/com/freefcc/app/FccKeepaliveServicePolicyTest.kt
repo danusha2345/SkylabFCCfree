@@ -176,6 +176,7 @@ class FccKeepaliveServicePolicyTest {
     }
 
     private val alreadyOnTarget = FccCountryRegionResult(
+        targetCountry = "AU",
         initialCountry = "AU",
         writeAttempts = 0,
         writeCompleted = false,

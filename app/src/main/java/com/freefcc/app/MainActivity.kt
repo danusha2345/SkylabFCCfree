@@ -182,6 +182,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         viewModel.refreshAutoFccSelection()
+        viewModel.refreshFccRegionSelection()
         viewModel.refreshLanBridgeBinding()
     }
 
@@ -418,6 +419,127 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
             }
         }
 
+        Spacer(Modifier.height(SectionSpacing))
+        FccRegionSelector(
+            selectedRegion = state.selectedFccRegion,
+            enabled = !state.isHardwareBusy,
+            onRegionSelected = viewModel::setFccRegion
+        )
+
+    }
+}
+
+@Composable
+private fun FccRegionSelector(
+    selectedRegion: FccRegion,
+    enabled: Boolean,
+    onRegionSelected: (FccRegion) -> Unit
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    GlowCard {
+        Box(modifier = Modifier.fillMaxWidth()) {
+            Surface(
+                color = Cyan.copy(alpha = if (enabled) 0.12f else 0.05f),
+                shape = RoundedCornerShape(10.dp),
+                border = BorderStroke(
+                    1.5.dp,
+                    if (enabled) Cyan.copy(alpha = 0.65f) else CardBorder
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(42.dp)
+                    .clickable(enabled = enabled) { expanded = true }
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        Icons.Default.Public,
+                        contentDescription = null,
+                        tint = if (enabled) Cyan else TextDim,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "FCC region",
+                        color = if (enabled) Cyan else TextDim,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    Text(
+                        selectedRegion.displayLabel,
+                        color = if (enabled) TextWhite else TextDim,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Icon(
+                        if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = "Choose FCC region",
+                        tint = if (enabled) Cyan else TextDim,
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+
+            Box(
+                modifier = Modifier
+                    .align(Alignment.Center)
+                    .width(220.dp)
+                    .height(42.dp)
+            ) {
+                DropdownMenu(
+                    expanded = expanded,
+                    onDismissRequest = { expanded = false },
+                    modifier = Modifier
+                        .width(220.dp)
+                        .heightIn(max = 260.dp)
+                        .border(1.dp, Cyan.copy(alpha = 0.55f), RoundedCornerShape(10.dp)),
+                    containerColor = Color(0xFF2A201A),
+                    tonalElevation = 0.dp,
+                    shadowElevation = 8.dp
+                ) {
+                    FccRegion.entries.forEach { region ->
+                        DropdownMenuItem(
+                            text = {
+                                Text(
+                                    region.displayLabel,
+                                    color = if (region == selectedRegion) Green else TextWhite,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (region == selectedRegion) {
+                                        FontWeight.Bold
+                                    } else {
+                                        FontWeight.Normal
+                                    }
+                                )
+                            },
+                            onClick = {
+                                expanded = false
+                                onRegionSelected(region)
+                            },
+                            trailingIcon = if (region == selectedRegion) {
+                                {
+                                    Icon(
+                                        Icons.Default.Check,
+                                        contentDescription = null,
+                                        tint = Green,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            } else {
+                                null
+                            },
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

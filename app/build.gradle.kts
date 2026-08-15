@@ -14,8 +14,8 @@ android {
         applicationId = "com.freefcc.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = 96
-        versionName = "1.5.79"
+        versionCode = 97
+        versionName = "1.5.80"
         fun statisticsEndpoint(property: String, variable: String): String =
             providers.gradleProperty(property)
                 .orElse(providers.environmentVariable(variable))

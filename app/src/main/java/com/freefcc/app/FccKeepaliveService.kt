@@ -279,7 +279,7 @@ class FccKeepaliveService : Service() {
 
         /** Log key for a periodic country check; identical ticks are not logged twice. */
         internal fun periodicCountryState(result: FccCountryRegionResult): String =
-            "${result.initialCountry ?: "unknown"}:${result.writeAttempts}:" +
+            "${result.targetCountry}:${result.initialCountry ?: "unknown"}:${result.writeAttempts}:" +
                 "${result.writeCompleted}:${result.writeAckMatched}:" +
                 "${result.readCompleted}:${result.readAckMatched}:" +
                 "${result.observedCountry ?: "unknown"}:${result.verified}"
@@ -588,7 +588,8 @@ class FccKeepaliveService : Service() {
             return null
         }
         return try {
-            FccCountryRegion.ensure(transport, pinnedPort) {
+            val targetRegion = FccRegionSelection.load(this)
+            FccCountryRegion.ensure(transport, pinnedPort, targetRegion.countryCode) {
                 requestGate.isCurrent(generation)
             }
         } finally {
@@ -599,7 +600,8 @@ class FccKeepaliveService : Service() {
 
     private fun logCountryRegionResult(label: String, result: FccCountryRegionResult) {
         FccViewModel.logServiceEvent(
-            "$label country: initial=${result.initialCountry ?: "unknown"}, " +
+            "$label country: target=${result.targetCountry}, " +
+                "initial=${result.initialCountry ?: "unknown"}, " +
                 "writes=${result.writeAttempts}, write_ack=${result.writeAckMatched}, " +
                 "read=${result.readCompleted}, read_ack=${result.readAckMatched}, " +
                 "observed=${result.observedCountry ?: "unknown"}, verified=${result.verified}"

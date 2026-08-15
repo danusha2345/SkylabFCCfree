@@ -52,7 +52,7 @@ A free and open-source Android app that unlocks FCC mode, sends experimental 4G 
 
 | Feature | Description |
 |---------|-------------|
-| **FCC Unlock** | Switches the radio from CE to FCC mode for higher power and more channels |
+| **FCC Unlock** | Applies the FCC profile with a persisted controller-region choice: Australia, China, United States, Bolivia, Russia, Netherlands, or Malaysia |
 | **4G Activation** | Sends 4G activation frames to the aircraft (serial read at runtime) — no status readback, experimental |
 | **GPS Control** | Reads the master `gps_enable` state and provides experimental explicit ON/OFF commands with one-shot readback |
 | **LED Control** | Reads the current lamp state and verifies it after LED on/off commands (DJI Fly and a linked aircraft are required) |
@@ -126,8 +126,9 @@ restored when the app starts after controller boot or an APK update.
 **Auto FCC — Home Point** waits for localized Home Point text from the original
 DJI Fly through Android Accessibility. It does not open a DUML socket while
 waiting. After an exact phrase match it connects to the controller if needed and
-reads the country with `07:19`; if it is not `AU`, the app writes `07:30=AU`
-and verifies the result, retrying the write/read pair up to three times. It then
+reads the country with `07:19`; if it does not match the saved FCC region, the
+app writes `07:30=<selected country>` and verifies the result, retrying the
+write/read pair up to three times. It then
 sends the 14-frame × 2-round FCC core profile and re-arms instead of stopping,
 so a later Home Point after an aircraft battery replacement triggers
 another full apply while the controller remains on. Duplicate UI events are
@@ -199,7 +200,7 @@ Reading the screen does not open DUML; an armed Home Point match triggers one
 full FCC apply.
 
 1. Power on the drone and link it to the controller
-2. Turn on **Auto FCC — Home Point**, turn on **Auto FCC — every 5 sec**, or use the one-shot **Send FCC Request**. Turning one switch on turns the other off; turning the active switch off leaves both off.
+2. Choose the controller country in **FCC region** at the bottom of the FCC tab, then turn on **Auto FCC — Home Point**, turn on **Auto FCC — every 5 sec**, or use the one-shot **Send FCC Request**. The choice is saved across controller restarts and is applied before every manual or automatic FCC profile write. Turning one switch on turns the other off; turning the active switch off leaves both off.
 3. Open DJI Fly only with **Open DJI Fly**. Home Point mode remains armed and sends the full profile after every new flight-session Home Point, including after replacing the aircraft battery without restarting the controller. Five-second mode sends the full profile once and then runs one read-only `07:19` country check per tick; it re-applies the profile only when the country no longer matches.
 4. For 4G diagnostics, tap **Probe 4G Endpoint** first. This is read-only and only checks whether `/duss/mb/0x205` is reachable. **Send 4G Activation Frames** remains experimental and confirms writes only, not activation.
    > **Note:** The integrated eSIM path on DJI Avata 360 is not yet proven compatible with the captured external-module profile. Please attach the LAN logs to an [issue](https://github.com/danusha2345/SkylabFCCfree/issues) when testing.
@@ -307,9 +308,10 @@ GPS uses the model-independent hash `0xC5429582` for `g_config.gps_cfg.gps_enabl
 
 The original upstream composite contained 21 frames sent in 2 rounds. Country
 handling is now read-first, bounded, and verifiable: every FCC apply first reads
-the current country with `07:19`. If it is already `AU`, no country write is
-sent. Otherwise the app sends `07:30=AU` and verifies it with another `07:19`,
-retrying the write/read pair up to three times. It then sends the remaining
+the current country with `07:19`. If it already matches the saved FCC region,
+no country write is sent. Otherwise the app sends `07:30=<selected country>` and
+verifies it with another `07:19`, retrying the write/read pair up to three times.
+It then sends the remaining
 14-frame core in 2 rounds with 30ms between frames and 100ms between rounds.
 The original composite produced an FCC result on tested Mini 5 Pro, Mini 4 Pro,
 Mavic 4 Pro, Air 3S, Neo, and Avata 360 hardware, but the necessity and

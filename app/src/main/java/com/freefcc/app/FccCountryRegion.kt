@@ -3,6 +3,7 @@ package com.freefcc.app
 import java.util.Locale
 
 internal data class FccCountryRegionResult(
+    val targetCountry: String,
     val initialCountry: String?,
     val writeAttempts: Int,
     val writeCompleted: Boolean,
@@ -12,7 +13,7 @@ internal data class FccCountryRegionResult(
     val observedCountry: String?
 ) {
     val verified: Boolean
-        get() = observedCountry == FccCountryRegion.TARGET_COUNTRY
+        get() = observedCountry == targetCountry
 
     /** True when the controller already reported the target country. */
     val skippedWrite: Boolean
@@ -20,7 +21,6 @@ internal data class FccCountryRegionResult(
 }
 
 internal object FccCountryRegion {
-    const val TARGET_COUNTRY = "AU"
     const val MAX_ATTEMPTS = 3
 
     private const val SENDER = 0x2A
@@ -31,21 +31,18 @@ internal object FccCountryRegion {
     private const val READ_COMMAND_ID = 0x19
     private const val READ_WINDOW_MS = 500
 
-    private val writePayload = byteArrayOf(
-        0x41, 0x55, 0x00, 0x00, 0x41, 0x55, 0x00, 0x00, 0x01, 0x00
-    )
-
     /**
      * Reads the current country first and writes only when it differs from
-     * [TARGET_COUNTRY]. A write is repeated while the readback still reports a
+     * [targetCountry]. A write is repeated while the readback still reports a
      * different country, up to [MAX_ATTEMPTS] times, so an unreachable
      * controller is reported instead of being retried forever.
      */
     fun ensure(
         transport: DumlTransport,
         port: Int,
+        targetCountry: String = FccRegion.DEFAULT.countryCode,
         shouldContinue: () -> Boolean = { true }
-    ): FccCountryRegionResult = executeEnsure(shouldContinue) { frame, readWindowMs ->
+    ): FccCountryRegionResult = executeEnsure(targetCountry, shouldContinue) { frame, readWindowMs ->
         transport.sendAndReceiveRaw(
             frame = frame,
             readWindowMs = readWindowMs,
@@ -55,13 +52,18 @@ internal object FccCountryRegion {
     }
 
     internal fun executeEnsure(
+        targetCountry: String = FccRegion.DEFAULT.countryCode,
         shouldContinue: () -> Boolean = { true },
         exchange: (frame: ByteArray, readWindowMs: Int) -> DumlRawExchange
     ): FccCountryRegionResult {
+        require(targetCountry.length == 2 && targetCountry.all { it in 'A'..'Z' }) {
+            "Country code must be two uppercase ASCII letters"
+        }
         val firstRead = readCountry(exchange)
         val initialCountry = parseReadback(firstRead.validatedPayload)
-        if (initialCountry == TARGET_COUNTRY) {
+        if (initialCountry == targetCountry) {
             return FccCountryRegionResult(
+                targetCountry = targetCountry,
                 initialCountry = initialCountry,
                 writeAttempts = 0,
                 writeCompleted = false,
@@ -71,15 +73,21 @@ internal object FccCountryRegion {
                 observedCountry = initialCountry
             )
         }
-        var result = writeThenRead(exchange, initialCountry, attempt = 1)
+        var result = writeThenRead(exchange, targetCountry, initialCountry, attempt = 1)
         while (!result.verified && result.writeAttempts < MAX_ATTEMPTS && shouldContinue()) {
-            result = writeThenRead(exchange, initialCountry, attempt = result.writeAttempts + 1)
+            result = writeThenRead(
+                exchange,
+                targetCountry,
+                initialCountry,
+                attempt = result.writeAttempts + 1
+            )
         }
         return result
     }
 
     private fun writeThenRead(
         exchange: (frame: ByteArray, readWindowMs: Int) -> DumlRawExchange,
+        targetCountry: String,
         initialCountry: String?,
         attempt: Int
     ): FccCountryRegionResult {
@@ -91,13 +99,14 @@ internal object FccCountryRegion {
                     cmdSet = COMMAND_SET,
                     cmdId = WRITE_COMMAND_ID,
                     dst = DESTINATION,
-                    payload = writePayload
+                    payload = buildWritePayload(targetCountry)
                 )
             ),
             READ_WINDOW_MS
         )
         val readExchange = readCountry(exchange)
         return FccCountryRegionResult(
+            targetCountry = targetCountry,
             initialCountry = initialCountry,
             writeAttempts = attempt,
             writeCompleted = writeExchange.writeCompleted,
@@ -105,6 +114,15 @@ internal object FccCountryRegion {
             readCompleted = readExchange.writeCompleted,
             readAckMatched = readExchange.matchedFrame != null,
             observedCountry = parseReadback(readExchange.validatedPayload)
+        )
+    }
+
+    private fun buildWritePayload(targetCountry: String): ByteArray {
+        val country = targetCountry.toByteArray(Charsets.US_ASCII)
+        return byteArrayOf(
+            country[0], country[1], 0x00, 0x00,
+            country[0], country[1], 0x00, 0x00,
+            0x01, 0x00
         )
     }
 

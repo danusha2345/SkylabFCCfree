@@ -50,6 +50,27 @@ class FccCountryRegionTest {
     }
 
     @Test
+    fun `selected country is encoded twice and verified instead of Australia`() {
+        val requests = mutableListOf<ByteArray>()
+        val result = FccCountryRegion.executeEnsure(targetCountry = "US") { frame, _ ->
+            requests += frame
+            when (requests.size) {
+                1 -> exchange(payload = byteArrayOf(0x00, 0x41, 0x55, 0x00))
+                2 -> exchange(payload = byteArrayOf(0x00, 0x01))
+                else -> exchange(payload = byteArrayOf(0x00, 0x55, 0x53, 0x00))
+            }
+        }
+
+        assertEquals("US", result.targetCountry)
+        assertEquals(0x55, requests[1][11].toInt() and 0xFF)
+        assertEquals(0x53, requests[1][12].toInt() and 0xFF)
+        assertEquals(0x55, requests[1][15].toInt() and 0xFF)
+        assertEquals(0x53, requests[1][16].toInt() and 0xFF)
+        assertEquals("US", result.observedCountry)
+        assertTrue(result.verified)
+    }
+
+    @Test
     fun `an unreadable country is treated as a mismatch and written`() {
         var exchanges = 0
         val result = FccCountryRegion.executeEnsure { _, _ ->
