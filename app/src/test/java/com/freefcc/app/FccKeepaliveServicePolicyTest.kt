@@ -38,11 +38,11 @@ class FccKeepaliveServicePolicyTest {
             AutoFccMode.HOME_POINT_TEXT,
             AutoFccMode.fromWireValue("home_point_text")
         )
-        assertEquals(AutoFccMode.PERIODIC_5S, AutoFccMode.fromWireValue("periodic_5s"))
+        assertEquals(AutoFccMode.PERIODIC_10S, AutoFccMode.fromWireValue("periodic_5s"))
         assertEquals(AutoFccMode.HOME_POINT_TEXT, AutoFccMode.fromWireValue("unknown"))
         assertEquals(AutoFccMode.HOME_POINT_TEXT, AutoFccMode.fromWireValue(null))
         assertEquals(
-            AutoFccMode.PERIODIC_5S,
+            AutoFccMode.PERIODIC_10S,
             FccKeepaliveService.deliveredAutoMode(
                 FccKeepaliveService.ACTION_START,
                 "periodic_5s"
@@ -57,8 +57,8 @@ class FccKeepaliveServicePolicyTest {
     }
 
     @Test
-    fun periodicModeUsesFiveSecondTicks() {
-        assertEquals(5_000L, FccKeepaliveService.PERIODIC_INTERVAL_MS)
+    fun periodicModeUsesTenSecondTicks() {
+        assertEquals(10_000L, FccKeepaliveService.PERIODIC_INTERVAL_MS)
     }
 
     @Test
@@ -70,7 +70,7 @@ class FccKeepaliveServicePolicyTest {
             AutoFccMode.fromPersistedValue("home_point_text")
         )
         assertEquals(
-            AutoFccMode.PERIODIC_5S,
+            AutoFccMode.PERIODIC_10S,
             AutoFccMode.fromPersistedValue("periodic_5s")
         )
     }
@@ -78,17 +78,17 @@ class FccKeepaliveServicePolicyTest {
     @Test
     fun enablingOneAutoModeReplacesTheOtherAndActiveModeCanBeDisabled() {
         assertEquals(
-            AutoFccMode.PERIODIC_5S,
+            AutoFccMode.PERIODIC_10S,
             AutoFccSelection.updatedMode(
                 AutoFccMode.HOME_POINT_TEXT,
-                AutoFccMode.PERIODIC_5S,
+                AutoFccMode.PERIODIC_10S,
                 enabled = true
             )
         )
         assertNull(
             AutoFccSelection.updatedMode(
-                AutoFccMode.PERIODIC_5S,
-                AutoFccMode.PERIODIC_5S,
+                AutoFccMode.PERIODIC_10S,
+                AutoFccMode.PERIODIC_10S,
                 enabled = false
             )
         )

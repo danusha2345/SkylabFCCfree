@@ -22,7 +22,7 @@ class AppForegroundServicePolicyTest {
             )
         )
         assertEquals(
-            AutoFccMode.PERIODIC_5S,
+            AutoFccMode.PERIODIC_10S,
             AppNotificationActionPolicy.selectedMode(
                 AppForegroundService.ACTION_SELECT_PERIODIC
             )
@@ -92,9 +92,9 @@ class AppForegroundServicePolicyTest {
             )
         )
         assertEquals(
-            "Auto FCC: every 5 seconds",
+            "Auto FCC: every 10 seconds",
             AppNotificationActionPolicy.statusText(
-                AutoFccMode.PERIODIC_5S,
+                AutoFccMode.PERIODIC_10S,
                 accessibilityEnabled = false
             )
         )

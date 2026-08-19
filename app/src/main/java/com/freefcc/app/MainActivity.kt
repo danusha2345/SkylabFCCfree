@@ -374,10 +374,10 @@ private fun FccPage(state: AppState, viewModel: FccViewModel) {
                         }
                     )
                     AutoModeToggle(
-                        text = "Auto FCC — every 5 sec",
-                        checked = state.selectedAutoMode == AutoFccMode.PERIODIC_5S,
+                        text = "Auto FCC — every 10 sec",
+                        checked = state.selectedAutoMode == AutoFccMode.PERIODIC_10S,
                         onCheckedChange = { checked ->
-                            viewModel.setAutoFccMode(AutoFccMode.PERIODIC_5S, checked)
+                            viewModel.setAutoFccMode(AutoFccMode.PERIODIC_10S, checked)
                         }
                     )
                 }

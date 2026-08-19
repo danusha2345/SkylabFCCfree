@@ -642,7 +642,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         if (autoMode == AutoFccMode.HOME_POINT_TEXT) {
                             "Connect completed — waiting for DJI Fly Home Point text"
                         } else {
-                            "Connect completed — periodic FCC mode started (5s)"
+                            "Connect completed — periodic FCC mode started (10s)"
                         }
                     )
                 }
@@ -786,7 +786,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 if (mode == AutoFccMode.HOME_POINT_TEXT) {
                     "Started Auto FCC — waiting for DJI Fly Home Point text"
                 } else {
-                    "Started Auto FCC — full profile, then country check every 5s"
+                    "Started Auto FCC — sending the profile every 10s"
                 }
             )
             true

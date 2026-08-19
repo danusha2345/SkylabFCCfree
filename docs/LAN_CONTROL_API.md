@@ -61,7 +61,7 @@ actions return HTTP `202 Accepted`; poll `/api/status` and `/logs` for their
 result. A successful LAN `connect` only establishes the controller session; it
 does not select an Auto FCC mode or open DJI Fly. Explicit wait start/stop
 actions and the legacy `keepalive_start/stop` aliases control the DJI Fly Home
-Point text mode. The five-second legacy mode is currently a local UI action.
+Point text mode. The ten-second periodic mode is currently a local UI action.
 The list also includes FCC, GPS, LED,
 device info, serial and 4G probes, updater actions, and flight-app launch. Busy
 hardware returns `409`; commands that require a prior controller connection or

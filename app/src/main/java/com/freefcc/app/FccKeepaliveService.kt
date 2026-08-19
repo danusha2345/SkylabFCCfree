@@ -21,7 +21,9 @@ import kotlinx.coroutines.launch
 
 enum class AutoFccMode(val wireValue: String) {
     HOME_POINT_TEXT("home_point_text"),
-    PERIODIC_5S("periodic_5s");
+    // Wire value stays "periodic_5s" so persisted selections survive the
+    // rename from the former 5-second interval.
+    PERIODIC_10S("periodic_5s");
 
     companion object {
         fun fromWireValue(value: String?): AutoFccMode =
@@ -73,7 +75,7 @@ internal object HomePointSignalPolicy {
  * Foreground Auto FCC service. Home Point mode keeps waiting for original DJI
  * Fly accessibility text and applies the complete profile after every new
  * flight-session Home Point event. Periodic mode is send-only: it pushes the
- * 07:30 country write plus the profile once every five seconds with no
+ * 07:30 country write plus the profile once every ten seconds with no
  * readback. Both modes remain active until the user turns their switch off.
  */
 class FccKeepaliveService : Service() {
@@ -85,7 +87,7 @@ class FccKeepaliveService : Service() {
         const val ACTION_STOP = "com.freefcc.app.STOP_KEEPALIVE"
         private const val EXTRA_REQUEST_GENERATION = "request_generation"
         private const val EXTRA_AUTO_MODE = "auto_mode"
-        internal const val PERIODIC_INTERVAL_MS = 5_000L
+        internal const val PERIODIC_INTERVAL_MS = 10_000L
         internal const val HOME_POINT_DEBOUNCE_MS = 30_000L
         private const val APPLY_CONNECT_RETRY_DELAY_MS = 5_000L
         private const val PREFS_NAME = "freefcc"
@@ -470,7 +472,7 @@ class FccKeepaliveService : Service() {
             }
 
             FccViewModel.logServiceEvent(
-                "PERIODIC FCC: sending the profile once every 5s, no readback"
+                "PERIODIC FCC: sending the profile once every 10s, no readback"
             )
             val pinnedPort = awaitControllerPort(generation) ?: return@launch
             // Periodic mode is send-only: one round per tick (Home Point runs

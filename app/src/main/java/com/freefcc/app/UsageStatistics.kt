@@ -29,7 +29,7 @@ internal enum class UsageAction(val wireName: String) {
     companion object {
         fun forAutoMode(mode: AutoFccMode?): UsageAction = when (mode) {
             AutoFccMode.HOME_POINT_TEXT -> AUTO_FCC_HOME_POINT
-            AutoFccMode.PERIODIC_5S -> AUTO_FCC_PERIODIC
+            AutoFccMode.PERIODIC_10S -> AUTO_FCC_PERIODIC
             null -> AUTO_FCC_OFF
         }
     }

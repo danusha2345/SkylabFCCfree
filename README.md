@@ -57,7 +57,7 @@ A free and open-source Android app that unlocks FCC mode, sends experimental 4G 
 | **GPS Control** | Reads the master `gps_enable` state and provides experimental explicit ON/OFF commands with one-shot readback |
 | **LED Control** | Reads the current lamp state and verifies it after LED on/off commands (DJI Fly and a linked aircraft are required) |
 | **Device Info** | Shows app version, controller code, aircraft model name/code, factory S/N, and LAN bridge address |
-| **Auto FCC** | Saves one of two optional startup modes: repeated DJI Fly Home Point detection, or a five-second country check that re-applies the profile only when the region no longer matches |
+| **Auto FCC** | Saves one of two optional startup modes: repeated DJI Fly Home Point detection, or a send-only ten-second mode that writes the country code and re-applies the profile each tick |
 | **Persistent Status** | Shows a foreground notification and starts the app service automatically after controller boot without sending FCC commands |
 | **Auto-Updater** | Checks `danusha2345/SkylabFCCfree` GitHub Releases and lets you download/install from the app |
 | **LAN Diagnostic API** | Logs, live status, bounded OpenFCC/DJI `logcat`, one-shot localhost socket inventory, allowlisted app actions, and raw DUML request/response over HTTP on the controller's RFC1918 Wi-Fi address |
@@ -136,15 +136,13 @@ debounced for 30 seconds. Enable **SkylabFCCfree Home Point Test** once in
 Android Accessibility settings. The first attempt opens the required settings;
 after the service is enabled and you return to SkylabFCCfree, the mode starts.
 
-**Auto FCC — every 5 sec** is the explicit polling alternative. It sends the
-complete profile once, then every five seconds runs a single read-only `07:19`
-country query. While the controller keeps reporting the target country, the
-tick sends nothing else. As soon as the reported country differs, the app
-writes `07:30` (retried up to three times until the readback confirms it) and
-re-applies the complete `fcc.json`.
+**Auto FCC — every 10 sec** is the explicit periodic alternative. It is
+send-only: every ten seconds it writes the `07:30` country code for the
+selected region and re-applies the complete `fcc.json` once, with no `07:19`
+readback and no verification.
 On a resource-constrained controller, prefer **Home Point**: while armed it is
-event-driven and does not perform periodic DUML/TCP work. The five-second mode
-wakes the service for one short query per tick—12 per minute, or 720 per
+event-driven and does not perform periodic DUML/TCP work. The ten-second mode
+wakes the service for one short send per tick—6 per minute, or 360 per
 hour—so its CPU, I/O, and battery cost is small but continuous. The persistent status notification itself does not poll.
 **Send FCC Request** remains a one-shot manual full-profile action. Neither
 automatic mode nor the manual action opens DJI Fly; only **Open DJI Fly** does.
@@ -200,8 +198,8 @@ Reading the screen does not open DUML; an armed Home Point match triggers one
 full FCC apply.
 
 1. Power on the drone and link it to the controller
-2. Choose the controller country in **FCC region** at the bottom of the FCC tab, then turn on **Auto FCC — Home Point**, turn on **Auto FCC — every 5 sec**, or use the one-shot **Send FCC Request**. The choice is saved across controller restarts and is applied before every manual or automatic FCC profile write. Turning one switch on turns the other off; turning the active switch off leaves both off.
-3. Open DJI Fly only with **Open DJI Fly**. Home Point mode remains armed and sends the full profile after every new flight-session Home Point, including after replacing the aircraft battery without restarting the controller. Five-second mode sends the full profile once and then runs one read-only `07:19` country check per tick; it re-applies the profile only when the country no longer matches.
+2. Choose the controller country in **FCC region** at the bottom of the FCC tab, then turn on **Auto FCC — Home Point**, turn on **Auto FCC — every 10 sec**, or use the one-shot **Send FCC Request**. The choice is saved across controller restarts and is applied before every manual or automatic FCC profile write. Turning one switch on turns the other off; turning the active switch off leaves both off.
+3. Open DJI Fly only with **Open DJI Fly**. Home Point mode remains armed and sends the full profile after every new flight-session Home Point, including after replacing the aircraft battery without restarting the controller. Ten-second mode is send-only: each tick writes the `07:30` country code for the selected region and re-applies the full profile once, with no `07:19` readback.
 4. For 4G diagnostics, tap **Probe 4G Endpoint** first. This is read-only and only checks whether `/duss/mb/0x205` is reachable. **Send 4G Activation Frames** remains experimental and confirms writes only, not activation.
    > **Note:** The integrated eSIM path on DJI Avata 360 is not yet proven compatible with the captured external-module profile. Please attach the LAN logs to an [issue](https://github.com/danusha2345/SkylabFCCfree/issues) when testing.
    The receiving-side analysis of the legacy sweep is documented in
@@ -239,7 +237,7 @@ SkylabFCCfree also keeps a low-priority foreground notification visible while
 the controller is running. The service starts after controller boot and after
 an in-place APK update. If an Auto FCC switch was selected, that mode is
 restored without opening DJI Fly; if both switches were off, no FCC command is
-started. The notification shows **Home Point**, **every 5 seconds**, or **Off**
+started. The notification shows **Home Point**, **every 10 seconds**, or **Off**
 in its first control row, so the mode can be changed without opening the app.
 Expand it to use the second row with **GPS ON** and **GPS OFF**. Each GPS action
 runs the same four bounded write cycles as the app screen and then automatically
@@ -436,7 +434,7 @@ app/src/main/
     FccRuntime.kt      Process-local FCC write and monitor runtime evidence
     HomePointMonitor.kt Retained direct/wrapped 03:44 RE parser and tests
     LedReadback.kt      Strict 03:F8 lamp-state decoding
-    FccKeepaliveService.kt Repeating Home Point + five-second periodic Auto FCC
+    FccKeepaliveService.kt Repeating Home Point + ten-second periodic Auto FCC
     LanControl.kt      LAN command validation and JSON encoding
     NetworkLogServer.kt Private-Wi-Fi logs/status/command HTTP API
     Profiles.kt        JSON profile loader

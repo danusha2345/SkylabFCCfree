@@ -441,8 +441,8 @@ internal object AppForegroundNotification {
         applyControl(
             views,
             R.id.notification_periodic,
-            "Every 5 sec",
-            selectedMode == AutoFccMode.PERIODIC_5S
+            "Every 10 sec",
+            selectedMode == AutoFccMode.PERIODIC_10S
         )
         applyControl(views, R.id.notification_fcc_off, "Off", selectedMode == null)
         views.setTextViewText(
@@ -523,7 +523,7 @@ internal object AppNotificationActionPolicy {
 
     fun selectedMode(action: String?): AutoFccMode? = when (action) {
         AppForegroundService.ACTION_SELECT_HOME_POINT -> AutoFccMode.HOME_POINT_TEXT
-        AppForegroundService.ACTION_SELECT_PERIODIC -> AutoFccMode.PERIODIC_5S
+        AppForegroundService.ACTION_SELECT_PERIODIC -> AutoFccMode.PERIODIC_10S
         else -> null
     }
 
@@ -538,7 +538,7 @@ internal object AppNotificationActionPolicy {
                 "Auto FCC: Home Point · enable Accessibility"
             }
         }
-        AutoFccMode.PERIODIC_5S -> "Auto FCC: every 5 seconds"
+        AutoFccMode.PERIODIC_10S -> "Auto FCC: every 10 seconds"
         null -> "Auto FCC: Off"
     }
 }
