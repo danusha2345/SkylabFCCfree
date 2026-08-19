@@ -159,6 +159,23 @@ class FccCountryRegionTest {
         assertNull(FccCountryRegion.parseReadback(byteArrayOf(0x00, 0x41, 0x31, 0x00)))
     }
 
+    @Test
+    fun `buildWriteFrame encodes the 07-30 country write without a readback`() {
+        val frame = FccCountryRegion.buildWriteFrame("US")
+
+        assertEquals(0x07, frame[9].toInt() and 0xFF)
+        assertEquals(0x30, frame[10].toInt() and 0xFF)
+        assertEquals(0x55, frame[11].toInt() and 0xFF)
+        assertEquals(0x53, frame[12].toInt() and 0xFF)
+        assertEquals(0x55, frame[15].toInt() and 0xFF)
+        assertEquals(0x53, frame[16].toInt() and 0xFF)
+    }
+
+    @Test(expected = IllegalArgumentException::class)
+    fun `buildWriteFrame rejects a malformed country code`() {
+        FccCountryRegion.buildWriteFrame("usa")
+    }
+
     private fun exchange(
         payload: ByteArray?,
         matched: Boolean = payload != null

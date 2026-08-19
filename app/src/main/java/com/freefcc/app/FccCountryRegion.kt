@@ -117,6 +117,26 @@ internal object FccCountryRegion {
         )
     }
 
+    /**
+     * The 07:30 country write frame for [targetCountry], ready to send with no
+     * readback. Used by the send-only periodic keepalive.
+     */
+    fun buildWriteFrame(targetCountry: String): ByteArray {
+        require(targetCountry.length == 2 && targetCountry.all { it in 'A'..'Z' }) {
+            "Country code must be two uppercase ASCII letters"
+        }
+        return DumlBuilder().buildFrame(
+            DumlFrame(
+                sender = SENDER,
+                cmdType = COMMAND_TYPE,
+                cmdSet = COMMAND_SET,
+                cmdId = WRITE_COMMAND_ID,
+                dst = DESTINATION,
+                payload = buildWritePayload(targetCountry)
+            )
+        )
+    }
+
     private fun buildWritePayload(targetCountry: String): ByteArray {
         val country = targetCountry.toByteArray(Charsets.US_ASCII)
         return byteArrayOf(

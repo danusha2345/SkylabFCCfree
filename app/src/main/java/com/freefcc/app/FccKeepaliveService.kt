@@ -72,10 +72,9 @@ internal object HomePointSignalPolicy {
 /**
  * Foreground Auto FCC service. Home Point mode keeps waiting for original DJI
  * Fly accessibility text and applies the complete profile after every new
- * flight-session Home Point event. Periodic mode applies the complete profile
- * once and then checks the reported country every five seconds, re-applying the
- * profile only when the controller no longer reports the target country.
- * Both modes remain active until the user turns their switch off.
+ * flight-session Home Point event. Periodic mode is send-only: it pushes the
+ * 07:30 country write plus the profile once every five seconds with no
+ * readback. Both modes remain active until the user turns their switch off.
  */
 class FccKeepaliveService : Service() {
 
@@ -276,13 +275,6 @@ class FccKeepaliveService : Service() {
 
         internal fun deliveredAutoMode(action: String?, encodedMode: String?): AutoFccMode? =
             AutoFccMode.fromWireValue(encodedMode).takeIf { action == ACTION_START }
-
-        /** Log key for a periodic country check; identical ticks are not logged twice. */
-        internal fun periodicCountryState(result: FccCountryRegionResult): String =
-            "${result.targetCountry}:${result.initialCountry ?: "unknown"}:${result.writeAttempts}:" +
-                "${result.writeCompleted}:${result.writeAckMatched}:" +
-                "${result.readCompleted}:${result.readAckMatched}:" +
-                "${result.observedCountry ?: "unknown"}:${result.verified}"
     }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -478,14 +470,15 @@ class FccKeepaliveService : Service() {
             }
 
             FccViewModel.logServiceEvent(
-                "PERIODIC FCC: starting full profile, then a country check every 5s"
+                "PERIODIC FCC: sending the profile once every 5s, no readback"
             )
             val pinnedPort = awaitControllerPort(generation) ?: return@launch
-            ensureCountryRegion(generation, pinnedPort)?.let { result ->
-                logCountryRegionResult("PERIODIC FCC bootstrap", result)
-            }
+            // Periodic mode is send-only: one round per tick (Home Point runs
+            // two) and no country readback. Each send prepends the 07:30
+            // country write for the selected region ahead of the FCC frames.
+            val periodicProfile = bootstrapProfile.copy(rounds = 1)
             val bootstrapReport = applyWithPreWriteRetry(
-                profile = bootstrapProfile,
+                profile = withCountryWrite(periodicProfile),
                 generation = generation,
                 pinnedPort = pinnedPort,
                 label = "PERIODIC FCC bootstrap",
@@ -496,22 +489,11 @@ class FccKeepaliveService : Service() {
                 return@launch
             }
 
-            var lastTickCountryState: String? = null
             while (requestGate.isCurrent(generation)) {
                 delay(PERIODIC_INTERVAL_MS)
                 if (!requestGate.isCurrent(generation)) return@launch
-                val country = ensureCountryRegion(generation, pinnedPort) ?: return@launch
-                // A tick that already reads the target country costs one query
-                // and sends nothing; the log records only state transitions.
-                val state = periodicCountryState(country)
-                if (state != lastTickCountryState) {
-                    lastTickCountryState = state
-                    logCountryRegionResult("PERIODIC FCC tick", country)
-                }
-                if (country.skippedWrite) continue
-                if (!requestGate.isCurrent(generation)) return@launch
                 val report = applyProfileOnce(
-                    profile = bootstrapProfile,
+                    profile = withCountryWrite(periodicProfile),
                     generation = generation,
                     pinnedPort = pinnedPort,
                     label = "PERIODIC FCC re-apply",
@@ -596,6 +578,17 @@ class FccKeepaliveService : Service() {
             sessionLease.close()
             hardwareLease.close()
         }
+    }
+
+    /**
+     * Prepends the 07:30 country write for the currently selected region to
+     * [profile]. Read fresh each send so a region change takes effect on the
+     * next tick without restarting the loop.
+     */
+    private fun withCountryWrite(profile: Profiles.Profile): Profiles.Profile {
+        val region = FccRegionSelection.load(this)
+        val countryFrame = FccCountryRegion.buildWriteFrame(region.countryCode)
+        return profile.copy(frames = listOf(countryFrame) + profile.frames)
     }
 
     private fun logCountryRegionResult(label: String, result: FccCountryRegionResult) {

@@ -2,7 +2,6 @@ package com.freefcc.app
 
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -125,65 +124,5 @@ class FccKeepaliveServicePolicyTest {
             )
         )
     }
-
-    @Test
-    fun repeatedIdenticalCountryTicksShareOneLogState() {
-        assertEquals(
-            FccKeepaliveService.periodicCountryState(alreadyOnTarget),
-            FccKeepaliveService.periodicCountryState(alreadyOnTarget.copy())
-        )
-    }
-
-    @Test
-    fun aTickThatHadToRewriteTheCountryProducesANewLogState() {
-        assertNotEquals(
-            FccKeepaliveService.periodicCountryState(alreadyOnTarget),
-            FccKeepaliveService.periodicCountryState(
-                alreadyOnTarget.copy(initialCountry = "RU", writeAttempts = 1)
-            )
-        )
-        assertNotEquals(
-            FccKeepaliveService.periodicCountryState(alreadyOnTarget),
-            FccKeepaliveService.periodicCountryState(alreadyOnTarget.copy(observedCountry = null))
-        )
-        assertNotEquals(
-            FccKeepaliveService.periodicCountryState(alreadyOnTarget),
-            FccKeepaliveService.periodicCountryState(alreadyOnTarget.copy(readAckMatched = false))
-        )
-    }
-
-    @Test
-    fun transportOutcomeChangesProduceANewLogState() {
-        val baseline = FccKeepaliveService.periodicCountryState(alreadyOnTarget)
-        assertNotEquals(
-            baseline,
-            FccKeepaliveService.periodicCountryState(
-                alreadyOnTarget.copy(writeCompleted = true)
-            )
-        )
-        assertNotEquals(
-            baseline,
-            FccKeepaliveService.periodicCountryState(
-                alreadyOnTarget.copy(writeAckMatched = true)
-            )
-        )
-        assertNotEquals(
-            baseline,
-            FccKeepaliveService.periodicCountryState(
-                alreadyOnTarget.copy(readCompleted = false)
-            )
-        )
-    }
-
-    private val alreadyOnTarget = FccCountryRegionResult(
-        targetCountry = "AU",
-        initialCountry = "AU",
-        writeAttempts = 0,
-        writeCompleted = false,
-        writeAckMatched = false,
-        readCompleted = true,
-        readAckMatched = true,
-        observedCountry = "AU"
-    )
 
 }
