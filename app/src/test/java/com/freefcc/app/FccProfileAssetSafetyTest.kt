@@ -26,7 +26,7 @@ class FccProfileAssetSafetyTest {
             }
             .toList()
 
-        assertEquals(14, frames.size)
+        assertEquals(3, frames.size)
         assertFalse(frames.any { (cmdSet, cmdId) -> cmdSet == 6 && cmdId == 0x72 })
         assertFalse(
             frames.any { (cmdSet, cmdId, payload) ->

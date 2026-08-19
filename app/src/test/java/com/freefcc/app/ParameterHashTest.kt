@@ -14,7 +14,9 @@ class ParameterHashTest {
     fun reproducesEveryHashSeenOnTheWire() {
         // Left column is what the aircraft was actually sent, byte for byte:
         // the LED and GPS hashes from led_on.json and GpsControlProtocol, and
-        // the three PM writes in fcc.json.
+        // the PM-hash writes. Only c1_regulatory_restriction remains in
+        // fcc.json; the two sdr_lost_prevent_* vectors were dropped from the
+        // profile but are kept here as known-good hashes of the algorithm.
         val known = mapOf(
             "g_config.misc_cfg.forearm_lamp_ctrl" to "a259ceed",
             "g_config.gps_cfg.gps_enable" to "829542c5",

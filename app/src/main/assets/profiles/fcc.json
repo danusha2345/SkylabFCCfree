@@ -1,6 +1,6 @@
 {
   "name": "FCC Universal",
-  "description": "FCC core after moving country handling to one verified 07:30 write followed by one 07:19 readback. The remaining 14 frames run in two rounds; confirmed stick-lock writes and the unrelated max_height write were removed.",
+  "description": "FCC core reduced to the register/parameter writes with a recovered meaning: two 09:27 SDR-assistant writes (0xffff0048=2 setForceFcc, 0xffff0063=3) and a single c1_regulatory_restriction=0 write that clears the restriction (no 1->0 pulse). Country handling stays in the separate 07:30 write / 07:19 readback flow. The opaque and no-op frames (10:58, 00:00, 00:32, 03:AF, 00:E5, 06:8C) and the sdr_lost_prevent safety flags were removed. The 3 frames run in two rounds.",
   "sender": 130,
   "sender_desc": "MOBILE_APP, index 4",
   "cmd_type": 32,
@@ -10,19 +10,8 @@
   "inter_round_delay_ms": 100,
   "read_window_ms": 50,
   "frames": [
-    { "s": 16, "i": 88,  "d": 18,  "p": "030100",             "note": "Opaque 10:58 request routed to bvision:0/perception_service; identical payload also closes the sequence, exact semantics are unverified" },
-    { "s": 0,  "i": 0,   "d": 31,  "p": "000001",             "note": "General device ping to all:0/broadcast; handlers echo the three-byte token, so this is not an FCC or activation write" },
-    { "s": 0,  "i": 50,  "d": 111, "p": "3131000000",         "note": "On WM260 dst 0x6f is dji_sec/sec_service; subcommand 0x31 queries a 59-byte activation-state response and is not an FCC write" },
-    { "s": 3,  "i": 175, "d": 3,   "p": "032400000000000000", "note": "03:AF GetAreaCode-family request routed to flight:0 over ICC; the receiving flight-controller MCU firmware is absent, so payload semantics remain unverified" },
     { "s": 9,  "i": 39,  "d": 9,   "p": "00024800ffff0200000000", "note": "Confirmed 09:27 SDR assistant register write: address 0xffff0048, value 2 (setForceFcc)" },
     { "s": 9,  "i": 39,  "d": 9,   "p": "00026300ffff0300000000", "note": "09:27 SDR assistant register write: address 0xffff0063, value 3; exact effect is unverified" },
-    { "s": 3,  "i": 249, "d": 146, "p": "d04aeffb01",         "note": "Confirmed PM hash write: c1_regulatory_restriction=1 on bvision:4/perception_agent" },
-    { "s": 3,  "i": 249, "d": 146, "p": "d04aeffb00",         "note": "Confirmed PM hash write: c1_regulatory_restriction=0 immediately after value 1" },
-    { "s": 0,  "i": 229, "d": 111, "p": "323201",             "note": "On WM260 the DJI Care dispatcher does not support subtype 0x32 and returns protocol error 0xe3 without action" },
-    { "s": 3,  "i": 249, "d": 3,   "p": "236b820101",         "note": "Confirmed PM hash write: sdr_lost_prevent_never_takeoff_en=1 on flight:0" },
-    { "s": 3,  "i": 249, "d": 3,   "p": "8773e68a01",         "note": "Confirmed PM hash write: sdr_lost_prevent_has_takeoff_en=1 on flight:0" },
-    { "s": 6,  "i": 140, "d": 9,   "p": "000300",             "note": "Opaque 06:8C request routed to vt_air:0 (aircraft transmission MCU), with value 03; exact parameter is unverified" },
-    { "s": 6,  "i": 140, "d": 9,   "p": "000100",             "note": "Opaque 06:8C request routed to vt_air:0 (aircraft transmission MCU), with value 01; exact parameter is unverified" },
-    { "s": 16, "i": 88,  "d": 18,  "p": "030100",             "note": "Same opaque 10:58 request as the first frame; old opposite enter/exit labels are unsupported" }
+    { "s": 3,  "i": 249, "d": 146, "p": "d04aeffb00",         "note": "Confirmed PM hash write: c1_regulatory_restriction=0 on bvision:4/perception_agent, clearing the restriction; the paired value-1 frame was removed so this is no longer a 1->0 pulse" }
   ]
 }
