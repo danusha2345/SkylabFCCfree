@@ -129,7 +129,7 @@ waiting. After an exact phrase match it connects to the controller if needed and
 reads the country with `07:19`; if it does not match the saved FCC region, the
 app writes `07:30=<selected country>` and verifies the result, retrying the
 write/read pair up to three times. It then
-sends the 14-frame × 2-round FCC core profile and re-arms instead of stopping,
+sends the 3-frame × 2-round FCC core profile and re-arms instead of stopping,
 so a later Home Point after an aircraft battery replacement triggers
 another full apply while the controller remains on. Duplicate UI events are
 debounced for 30 seconds. Enable **SkylabFCCfree Home Point Test** once in
@@ -312,16 +312,19 @@ the current country with `07:19`. If it already matches the saved FCC region,
 no country write is sent. Otherwise the app sends `07:30=<selected country>` and
 verifies it with another `07:19`, retrying the write/read pair up to three times.
 It then sends the remaining
-14-frame core in 2 rounds with 30ms between frames and 100ms between rounds.
+3-frame core in 2 rounds with 30ms between frames and 100ms between rounds.
 The original composite produced an FCC result on tested Mini 5 Pro, Mini 4 Pro,
 Mavic 4 Pro, Air 3S, Neo, and Avata 360 hardware, but the necessity and
 universality of every individual core frame are not proven. The directly
 identified FCC primitive is the first `09:27` SDR register write
-(`setForceFcc`). Firmware analysis identified both `06:72` frames as
-stick-value-lock operations on RC2 (and a different unknown operation on
-RC Pro 2), so they were removed together with the unrelated
-`max_height=500` write. Other opaque requests remain pending separate
-hardware A/B tests. Country readback confirms
+(`setForceFcc`). The core was trimmed to the three frames whose meaning is
+recovered: the two `09:27` SDR-assistant writes (`0xffff0048=2` `setForceFcc`
+and `0xffff0063=3`) and a single `c1_regulatory_restriction=0` write that
+clears the restriction without the former `1->0` pulse. Frames whose purpose is
+unproven or which write nothing — `10:58`, `00:00`, `00:32`, `03:AF`, `00:E5`,
+`06:8C` — and the `sdr_lost_prevent_*` safety flags (already `1` by default)
+were removed, along with the earlier `06:72` stick-value-lock frames and the
+unrelated `max_height=500` write. Country readback confirms
 the controller country state, not physical RF power, so verify the Transmission
 graph in DJI Fly. Pressing Back moves SkylabFCCfree to the background instead
 of destroying its Activity; Android process death still requires a new
@@ -332,21 +335,21 @@ recovered from controller binaries.
 
 ### 4G Profile
 
-128 frames sent in a single round with 10ms between each. Each frame carries the aircraft's serial number in its payload. The serial is read from the controller at runtime by listening for telemetry on the DUML socket.
+One targeted `0x51:0x1A` (`wlm_service_mode_switch_req`) frame sent in a single round. The frame carries `{ver=00, service_type=00 SERVICE_LIVEVIEW, mode=01 LIVEVIEW_HYBIRD}` plus the aircraft's serial number as the target-SN string. The serial is read from the controller at runtime by listening for telemetry on the DUML socket. The old 128-frame `0x51:0x00..0x7F` sweep was a no-op — its `mode=00` byte selected `LIVEVIEW_SDR` and 46 of the IDs have no handler — so it was replaced by this single frame.
 
-The captured profile is confirmed only as an external-module protocol artifact. FreeFCC does not use a model allowlist: an explicit send accepts any freshly observed full factory serial or structurally valid `WA/WM` identity. DJI Avata 360 Enhanced Transmission edition has an integrated IoT eSIM module; compatibility with this exact profile remains a hypothesis pending a live send and DJI Fly state evidence.
+The captured profile is confirmed only as an external-module protocol artifact. FreeFCC does not use a model allowlist: an explicit send accepts any freshly observed full factory serial or structurally valid `WA/WM` identity. Write completion does not prove 4G activation; the request is refused (resp `3,3,3`) while the WLM has not yet seen LTE availability. DJI Avata 360 Enhanced Transmission edition has an integrated IoT eSIM module; compatibility with this exact profile remains a hypothesis pending a live send and DJI Fly state evidence.
 
 **How the 4G activation frames are sent:**
 
-Unlike FCC which goes through the standard DUML TCP proxy on port 40009, 4G frames are sent via a Unix domain socket at `/duss/mb/0x205` (abstract namespace). This is a DJI internal DUSS route, not proof of a particular physical modem type. The app opens one `LocalSocket` for the complete 128-frame burst, writes and flushes each frame, then closes the socket. No ACK is read back — the app can only confirm the frames were written, never that the aircraft activated 4G. A separate read-only button checks endpoint reachability without sending frames.
+Unlike FCC which goes through the standard DUML TCP proxy on port 40009, 4G frames are sent via a Unix domain socket at `/duss/mb/0x205` (abstract namespace). This is a DJI internal DUSS route, not proof of a particular physical modem type. The app opens one `LocalSocket`, writes and flushes the single frame, then closes the socket. No ACK is read back — the app can only confirm the frame was written, never that the aircraft activated 4G. A separate read-only button checks endpoint reachability without sending frames.
 
 The frame format is:
 - `sender = 2` (MOBILE_APP)
 - `cmd_type = 0` (Request, NO_ACK_NEEDED, no encryption)
-- `cmd_set = 81` (0x51, experimental/internal command set in this profile)
-- `cmd_id = 0..127` (sequential, one per frame)
+- `cmd_set = 81` (0x51, WLM command set)
+- `cmd_id = 26` (0x1A, `wlm_service_mode_switch_req`)
 - `dst = 238` (0xEE, OFDM_GROUND index 7)
-- `payload = 000000 + ASCII(aircraft_serial)`
+- `payload = 000001 + ASCII(aircraft_serial)` (`ver=00, service_type=00, mode=01`)
 
 The aircraft identity is probed with one bounded passive read on `40007`, where
 RC2 hardware evidence exposes the full factory serial in `51:14`. A live audit
@@ -422,8 +425,8 @@ Profiles combine historical/upstream captures with commands verified during curr
 ```
 app/src/main/
   assets/profiles/
-    fcc.json          14-frame FCC core (country write/readback is code-driven)
-    4g.json           experimental 128-frame 0x51 serial sweep
+    fcc.json          3-frame FCC core (country write/readback is code-driven)
+    4g.json           experimental single 0x51:1A targeted frame (serial in payload)
     device_info.json   1 frame, version inquiry
     led_on.json        1 frame, LED on (port 40007)
     led_off.json       1 frame, LED off (port 40007)
