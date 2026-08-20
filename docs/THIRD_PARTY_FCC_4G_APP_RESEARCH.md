@@ -49,6 +49,8 @@
 | Артефакт | Версия | Размер | SHA-256 |
 |---|---|---:|---|
 | NLD FCC `com.nolimitdronez.nldfcc` | `1.2.0.5` (`41`) | 4,894,384 | `a37d0125334c79038d8dd63d4a12e4da29be884ae5510853de94211d497cb580` |
+| NLD FCC standalone `com.nolimitdronez.nldfcc` | `2.0.0.6` (`46`) | 7,269,392 | `4a6e07a2ee1fbd7f2dacd4bb500ed3a2747490be1d8adb4d6f212d99a4a15126` |
+| NLD FCC из `NLDFCC_Smart_RC.zip` | `2.0.0.6` (`46`) | 7,278,464 | `1035f0aa22e158fd1703e14dd3bd2198845da4c2113454f9ac3a4569c41ee474` |
 | OpenFCC `app.openfcc` | `1.2.30` (`35`) | 12,000,582 | `04a580af86b780d7d497a676738e16ee8d609983a4c5b60dc7c772d23f87e8ee` |
 | OpenFCC Windows Setup | `1.2.4` family | 54,057,943 | `50bc1e3a1ac532af4ed54a0057960610e619ddfe0246233f134a5dd02d26b741` |
 | Drone-Hacks Mobile `com.dronehacks.client` | `1.0.1` (`1000001`) | 89,211,250 | `4694dd10fb78d1c317906b4bac15aa8e6aaa9096a941bd7f93388068c6a955dd` |
@@ -82,7 +84,18 @@
   поэтому это не означает HTTP-запрос каждые две секунды;
 - уведомление содержит действие остановки FCC;
 - UI отображает этапы `Enable 4G SIM`, `Enable FCC Mode` и
-  `Disable Remote ID`.
+  `Disable Remote ID`;
+- в `2.0.0.6` все семь `assets/profiles/*.json` побайтово совпадают с blob из
+  истории FreeFCC: `fcc.json` совпадает с текущим полным 21-frame профилем,
+  а `4g.json` — с legacy-версией FreeFCC commit `0ad9037`;
+- Java-код `2.0.0.6` не открывает эти profile assets: активный FCC/4G payload
+  по-прежнему приходит через server/native path и применяется `NativeCore.z1d`;
+- два APK `2.0.0.6` имеют одинаковые profile assets, `libnld-core.so` и signing
+  certificate, но разные manifests: ZIP-билд содержит `BootCompletedReceiver`,
+  а standalone-билд его не содержит, хотя UI Auto Start сохранён;
+- `packageinstaller.apk` из NLD ZIP побайтово равен локальному
+  `01_PackageInstaller.apk`, SHA-256
+  `523361acbe62587fa61e00a92369e87daa0d812232b8942deba67771ccf2633a`.
 
 `DERIVED`: NLD — не простая оболочка над двумя известными N1/N2-кадрами.
 Приложение имеет полноценный транспорт, model-dependent профиль, обработку
@@ -90,7 +103,8 @@
 
 `UNKNOWN`: UI из трёх шагов не доказывает три отдельные DUML-команды. Все три
 операции могут входить в один серверный профиль. Plaintext команд в DEX,
-resources и обычных строках `libnld-core.so` не найден.
+активном call path и обычных строках `libnld-core.so` не найден. Наличие
+открытых JSON в `2.0.0.6` этого не меняет: у них нет Java call site.
 
 `VENDOR CLAIM`: NLD заявляет worldwide 4G SIM и отключение Remote ID на
 поддерживаемых моделях. Без plaintext capture нельзя установить, какой кадр
@@ -98,11 +112,10 @@ resources и обычных строках `libnld-core.so` не найден.
 
 ### Важное сравнение с FreeFCC
 
-NLD поддерживает FCC примерно раз в две секунды. Это показывает, что сам по
-себе пятисекундный короткий тик FreeFCC не выглядит чрезмерно частым. Однако
-нельзя переносить этот вывод на полный 128-кадровый `4g.json`: NLD может
-проверять native state, использовать кэш и отправлять лишь необходимую
-model-dependent часть.
+NLD поддерживает FCC примерно раз в две секунды, но точное число реально
+отправленных кадров скрыто за native result/cache. Это не является основанием
+ускорять 10-секундный FreeFCC keepalive или возвращать legacy 128-frame sweep:
+NLD может проверять native state и отправлять только server-selected часть.
 
 ## OpenFCC
 
@@ -480,15 +493,16 @@ transport write. Она не подтверждает:
 | Claim | Level | Artifact/location | Evidence | Confidence |
 |---|---|---|---|---|
 | NLD имеет реальный DUML transport | `OBSERVED` | NLD APK/Dex/native | USB/AOA/RCLink, parser, response handling | Высокая |
-| NLD поддерживает FCC примерно раз в 2 s | `OBSERVED` | `p3.o0` coroutine | loop вызывает профиль и делает delay `2000 ms` | Высокая |
+| NLD поддерживает FCC примерно раз в 2 s | `OBSERVED` | `f2` coroutine в `2.0.0.6` | loop вызывает native-backed apply и делает delay `2000 ms` | Высокая |
 | NLD действительно отправляет отдельную известную 4G-команду | `UNKNOWN` | `libnld-core.so` | plaintext профиля скрыт | Низкая |
+| NLD `fcc.json`/`4g.json` описывают активный runtime | `NEGATIVE` | NLD `2.0.0.6` DEX/assets | все assets совпадают с FreeFCC history, но Java asset-read call site отсутствует | Высокая |
 | OpenFCC имеет отдельный Always-on 4G path | `OBSERVED` | OpenFCC APK/native | `FourGHeartbeatService`, 4G native relay, aircraft SN | Высокая |
 | OpenFCC controller OTA участвует в снятии controller-side ограничений | `OBSERVED` + `DERIVED` | desktop launcher, `firmware_update.zip` | Подтверждены full A/B downgrade OTA build 139 и flow применения; точная причинная связь с 4G не проверена live | Средняя |
 | Drone Tweaks меняет DJI Fly | `OBSERVED` | vendor FAQ | поставщик прямо описывает modified official app | Высокая |
 | Drone-Hacks FCC мешает 4G | `VENDOR CLAIM` | Drone-Hacks Wiki | полевое предупреждение без RF evidence | Низкая/средняя |
 | `09:27` — публичный минимальный FCC-примитив | `OBSERVED` | три open-source реализации | одинаковый payload `0xffff0048=2` | Высокая |
 | 21-frame FreeFCC-USB профиль универсален | `HYPOTHESIS` | GitHub JSON/README | профиль открыт, но hardware test отсутствует | Низкая |
-| FreeFCC 128-frame sweep включает Enhanced Transmission | `UNCONFIRMED`; локальный тест `NEGATIVE`, upstream `REPORTED` | `profiles/4g.json`, `WLM_CMDSET_51.md`, upstream issue #18/README | На проверенном RC2 `51:19` отвергает поле из ASCII identity; причинность внешних успешных reports не доказана | Высокая для RC2 handler, низкая для переноса между моделями |
+| Текущий FreeFCC targeted `51:1A` включает Enhanced Transmission | `UNCONFIRMED`; request layout `CONFIRMED` | `profiles/4g.json`, `WLM_CMDSET_51.md`, firmware handlers | Старый 128-frame sweep удалён; текущий request просит HYBRID и читает response, но физическая 4G-активация не подтверждена live | Высокая для layout, низкая для результата |
 | Штатный DJI LTE требует нескольких стадий | `OBSERVED` + `DERIVED` | MSDK, DJI FAQ, firmware docs | auth, capability, pairing, WLM, relay | Высокая |
 
 ## Следующий наиболее информативный эксперимент

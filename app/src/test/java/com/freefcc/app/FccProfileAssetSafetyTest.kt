@@ -1,6 +1,7 @@
 package com.freefcc.app
 
 import java.io.File
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -42,5 +43,21 @@ class FccProfileAssetSafetyTest {
     fun unsupportedLegacyProfilesAreNotPackaged() {
         assertFalse(File(profilesDir, "ce_restore.json").exists())
         assertFalse(File(profilesDir, "fcc_keepalive.json").exists())
+    }
+
+    @Test
+    fun fourGProfileIsOnlyTheTargetedHybridRequest() {
+        val profile = File(profilesDir, "4g.json").readText()
+
+        assertFalse("legacy frame sweep is absent", profile.contains("\"frame_count\""))
+        assertEquals(
+            "26",
+            Regex(""""cmd_ids"\s*:\s*\[\s*(\d+)\s*]""")
+                .find(profile)
+                ?.groupValues
+                ?.get(1)
+        )
+        assertTrue(Regex(""""cmd_set"\s*:\s*81\b""").containsMatchIn(profile))
+        assertTrue(Regex(""""payload_prefix_hex"\s*:\s*"000001"""").containsMatchIn(profile))
     }
 }

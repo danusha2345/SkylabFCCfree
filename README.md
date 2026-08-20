@@ -53,7 +53,7 @@ A free and open-source Android app that unlocks FCC mode, sends experimental 4G 
 | Feature | Description |
 |---------|-------------|
 | **FCC Unlock** | Applies the FCC profile with a persisted controller-region choice: Australia, China, United States, Bolivia, Russia, Netherlands, or Malaysia |
-| **4G Activation** | Sends 4G activation frames to the aircraft (serial read at runtime) — no status readback, experimental |
+| **4G Activation** | Sends one targeted `51:1A` request with the full aircraft S/N and reports the controller response when routed back — experimental |
 | **GPS Control** | Reads the master `gps_enable` state and provides experimental explicit ON/OFF commands with one-shot readback |
 | **LED Control** | Reads the current lamp state and verifies it after LED on/off commands (DJI Fly and a linked aircraft are required) |
 | **Device Info** | Shows app version, controller code, aircraft model name/code, factory S/N, and LAN bridge address |
@@ -113,7 +113,7 @@ DJI flow.
 | DJI Inspire 3 | RC Plus | Expected, untested | Cellular hardware supported; profile unverified | Not tested | Hardware verification required |
 | Other RC2 aircraft | RC2 | Should work | Unknown | Unknown | FCC profile is universal |
 
-The captured 4G profile is experimental and was derived from systems using external cellular hardware. DJI Avata 360 Enhanced Transmission edition instead has an integrated IoT eSIM module. FreeFCC can probe whether the controller exposes `/duss/mb/0x205`, but endpoint availability does not prove that the same 128-frame activation sequence is compatible. An explicit experimental send accepts a freshly observed full `1581...` serial or structurally valid `WA/WM` identity; there is no model allowlist.
+The captured 4G profile is experimental and was derived from systems using external cellular hardware. DJI Avata 360 Enhanced Transmission edition instead has an integrated IoT eSIM module. FreeFCC can probe whether the controller exposes `/duss/mb/0x205`, but endpoint availability does not prove that the targeted request is compatible. An explicit experimental send requires a freshly observed full `1581...` factory serial; short `WA/WM` model codes are rejected because the WLM target field expects a peer S/N.
 
 Validated upstream on DJI RC2 firmware v10.00.0700; this fork was additionally exercised live on RC2 `rc331`. Future firmware can change the local proxy or DUML routing, so compatibility must be rechecked rather than assumed.
 
@@ -200,7 +200,7 @@ full FCC apply.
 1. Power on the drone and link it to the controller
 2. Choose the controller country in **FCC region** at the bottom of the FCC tab, then turn on **Auto FCC — Home Point**, turn on **Auto FCC — every 10 sec**, or use the one-shot **Send FCC Request**. The choice is saved across controller restarts and is applied before every manual or automatic FCC profile write. Turning one switch on turns the other off; turning the active switch off leaves both off.
 3. Open DJI Fly only with **Open DJI Fly**. Home Point mode remains armed and sends the full profile after every new flight-session Home Point, including after replacing the aircraft battery without restarting the controller. Ten-second mode is send-only: each tick writes the `07:30` country code for the selected region and re-applies the full profile once, with no `07:19` readback.
-4. For 4G diagnostics, tap **Probe 4G Endpoint** first. This is read-only and only checks whether `/duss/mb/0x205` is reachable. **Send 4G Activation Frames** remains experimental and confirms writes only, not activation.
+4. For 4G diagnostics, tap **Probe 4G Endpoint** first. This is read-only and only checks whether `/duss/mb/0x205` is reachable. **Send 4G Activation Frames** remains experimental: it waits for the matching `51:1A` response, but even an accepted request only means that the controller started its link-switch flow, not that 4G became active.
    > **Note:** The integrated eSIM path on DJI Avata 360 is not yet proven compatible with the captured external-module profile. Please attach the LAN logs to an [issue](https://github.com/danusha2345/SkylabFCCfree/issues) when testing.
    The receiving-side analysis of the legacy sweep is documented in
    [Command set `0x51`](docs/WLM_CMDSET_51.md); the separate
@@ -296,7 +296,7 @@ Every contribution helps keep development and hardware testing going. Thank you.
 
 For FCC and request/response diagnostics, the app sends DUML commands to localhost TCP proxies. RC2 normally uses `127.0.0.1:40009`; discovery also checks `40007` and `8901..8904` for other controller paths. DUML is DJI's internal command protocol, publicly documented in the [dji-firmware-tools](https://github.com/o-gs/dji-firmware-tools) project.
 
-Each command is a small binary packet with a magic byte (`0x55`), routing fields, a payload, and two CRC checksums. Ordinary TCP commands use one packet per connection. GPS and LED commands use an outer wrapper on port `40007`; 4G uses one abstract Unix datagram socket for the complete frame burst.
+Each command is a small binary packet with a magic byte (`0x55`), routing fields, a payload, and two CRC checksums. Ordinary TCP commands use one packet per connection. GPS and LED commands use an outer wrapper on port `40007`; the targeted 4G request uses one abstract Unix datagram socket for its write and bounded response read.
 
 The LED card keeps physical state separate from write completion. Connect, its refresh action, and every LED write perform one wrapped read-only `03:F8` hash request and display `ON`, `OFF`, `PARTIAL`, or `UNKNOWN`. A missing or mismatched response never preserves the requested value as if it were verified. See [LAN Control API](docs/LAN_CONTROL_API.md#read-the-current-lamp-parameter-by-hash).
 
@@ -335,11 +335,11 @@ recovered from controller binaries.
 
 One targeted `0x51:0x1A` (`wlm_service_mode_switch_req`) frame sent in a single round. The frame carries `{ver=00, service_type=00 SERVICE_LIVEVIEW, mode=01 LIVEVIEW_HYBIRD}` plus the aircraft's serial number as the target-SN string. The serial is read from the controller at runtime by listening for telemetry on the DUML socket. The old 128-frame `0x51:0x00..0x7F` sweep was a no-op — its `mode=00` byte selected `LIVEVIEW_SDR` and 46 of the IDs have no handler — so it was replaced by this single frame.
 
-The captured profile is confirmed only as an external-module protocol artifact. FreeFCC does not use a model allowlist: an explicit send accepts any freshly observed full factory serial or structurally valid `WA/WM` identity. Write completion does not prove 4G activation; the request is refused (resp `3,3,3`) while the WLM has not yet seen LTE availability. DJI Avata 360 Enhanced Transmission edition has an integrated IoT eSIM module; compatibility with this exact profile remains a hypothesis pending a live send and DJI Fly state evidence.
+The captured profile is confirmed only as an external-module protocol artifact. FreeFCC does not use a model allowlist, but an explicit send requires a freshly observed full `1581...` factory serial; a `WA/WM` model code is not a peer S/N. Write completion does not prove 4G activation; the request is refused (resp `3,3,3`) while the WLM has not yet seen LTE availability. DJI Avata 360 Enhanced Transmission edition has an integrated IoT eSIM module; compatibility with this exact profile remains a hypothesis pending a live send and DJI Fly state evidence.
 
 **How the 4G activation frames are sent:**
 
-Unlike FCC which goes through the standard DUML TCP proxy on port 40009, 4G frames are sent via a Unix domain socket at `/duss/mb/0x205` (abstract namespace). This is a DJI internal DUSS route, not proof of a particular physical modem type. The app opens one `LocalSocket`, writes and flushes the single frame, then closes the socket. No ACK is read back — the app can only confirm the frame was written, never that the aircraft activated 4G. A separate read-only button checks endpoint reachability without sending frames.
+Unlike FCC which goes through the standard DUML TCP proxy on port 40009, the 4G frame is sent via a Unix domain socket at `/duss/mb/0x205` (abstract namespace). This is a DJI internal DUSS route, not proof of a particular physical modem type. The app opens one `LocalSocket`, writes and flushes the single frame, then waits up to 1.5 seconds for a matching CRC-valid `51:1A` response on the same socket. A missing response leaves the status unknown; an accepted response starts the controller's link-switch flow but still does not prove that the aircraft activated 4G. A separate read-only button checks endpoint reachability without sending frames.
 
 The frame format is:
 - `sender = 2` (MOBILE_APP)
@@ -352,13 +352,12 @@ The frame format is:
 The aircraft identity is probed with one bounded passive read on `40007`, where
 RC2 hardware evidence exposes the full factory serial in `51:14`. A live audit
 found only controller identity on `40009`/`8901` and no frames on `8902..8904`.
-The preferred format is a full `1581...` factory serial. The parser also
-recognizes the 16-character RC2 telemetry suffix beginning with `FA` for display
-and falls back to a `W[AM]xxx` model pattern with an optional variant suffix,
-such as `WM265T`. A full `1581...`
-serial or any structurally valid `WA/WM` code is accepted by the 4G flow. The last value
-is cached for display, but 4G requires a freshly observed current-aircraft
-identity.
+The parser recognizes a full `1581...` factory serial, the 16-character RC2
+telemetry suffix beginning with `FA`, and `W[AM]xxx` model patterns such as
+`WM265T` for display and aircraft identification. The 4G send is stricter: it
+accepts only a freshly observed full `1581...` serial because the WLM resolves
+the target against its peer-device list. Cached values, suffix-only identities
+and `WA/WM` model codes cannot authorize a 4G request.
 
 The `/duss/mb/0x205` pre-check proves only local route availability. It does not distinguish an external Cellular Dongle from an integrated eSIM module and does not validate model-specific payload semantics.
 

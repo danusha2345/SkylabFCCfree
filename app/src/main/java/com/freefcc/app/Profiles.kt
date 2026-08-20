@@ -96,15 +96,17 @@ object Profiles {
         val dst = obj.getInt("dst")
         val prefix = hexToBytes(obj.getString("payload_prefix_hex"))
 
-        // Targeted command IDs (e.g. [26] = 0x1A service mode switch).
-        // Fallback for older profile files: generated sweep of frame_count IDs.
-        val cmdIds = if (obj.has("cmd_ids")) {
-            val arr = obj.getJSONArray("cmd_ids")
-            (0 until arr.length()).map { arr.getInt(it) }
-        } else {
-            val frameCount = obj.getInt("frame_count")
-            val cmdIdStart = obj.optInt("cmd_id_start", 0)
-            (0 until frameCount).map { cmdIdStart + it }
+        // Fail closed instead of silently reviving the historical 128-ID sweep
+        // when an old or malformed profile is packaged.
+        val cmdIdsArray = obj.getJSONArray("cmd_ids")
+        val cmdIds = (0 until cmdIdsArray.length()).map { cmdIdsArray.getInt(it) }
+        require(rounds == 1) { "4G profile must use one round" }
+        require(sender == 0x02 && cmdType == 0x00 && cmdSet == 0x51 && dst == 0xEE) {
+            "4G profile route must be 02 -> EE, cmd 51:1A"
+        }
+        require(cmdIds == listOf(0x1A)) { "4G profile must contain only cmd 51:1A" }
+        require(prefix.contentEquals(byteArrayOf(0x00, 0x00, 0x01))) {
+            "4G profile must request liveview HYBRID mode"
         }
 
         // Build the payload: prefix + ASCII serial

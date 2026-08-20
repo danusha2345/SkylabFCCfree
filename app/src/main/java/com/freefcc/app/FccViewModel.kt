@@ -81,6 +81,27 @@ internal data class FourGIdentity(
     val modelCode: String?
 )
 
+/**
+ * Maps the 51:1A wlm_service_mode_switch_req response payload to an honest
+ * user message. The WLM replies via wlm_mode_switch_resp with three response
+ * bytes followed by a four-byte return code.
+ */
+internal object FourGResponseInterpreter {
+    fun describe(resp: ByteArray?): String {
+        if (resp == null) {
+            return "Frame written, but no response within the read window — 4G status unknown. The DUSS router may not route the reply to this app."
+        }
+        fun triplet(v: Int) = resp.size >= 3 &&
+            resp[0] == v.toByte() && resp[1] == v.toByte() && resp[2] == v.toByte()
+        return when {
+            triplet(0) -> "4G switch request ACCEPTED by the controller (resp 0,0,0) — the link switch is running; check 4G status on the aircraft."
+            triplet(3) -> "4G switch REFUSED by the controller (resp 3,3,3): LTE link is not available yet. Pair and activate the cellular dongle first, then retry."
+            triplet(9) -> "4G request rejected as invalid (resp 9,9,9) — please report this response."
+            else -> "4G request answered: ${resp.joinToString(" ") { "%02X".format(it) }} — check 4G status on the aircraft."
+        }
+    }
+}
+
 private class LanWriteLease(
     private val hardwareLease: HardwareLock.Lease,
     private val releaseLedGate: () -> Unit
@@ -655,7 +676,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
     /**
      * Reads the country, writes and verifies the selected region only when needed, then sends
-     * the reduced 14-frame FCC core profile.
+     * the full 21-frame FCC profile.
      * The core profile runs 2 rounds internally for reliability.
      */
     fun enableFcc(): Boolean {
@@ -1013,7 +1034,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                 }
 
                 val resp = result.responsePayload
-                val message = interpretFourGResponse(resp)
+                val message = FourGResponseInterpreter.describe(resp)
                 update { copy(is4gBusy = false, busyProgress = 0f, fourGMessage = message) }
                 log("4G activation: frame written; response=${resp?.joinToString(" ") { "%02X".format(it) } ?: "none (timeout)"} → $message")
             } catch (e: Exception) {
@@ -1024,30 +1045,6 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             }
         }
         return true
-    }
-
-    /**
-     * Maps the 51:1A wlm_service_mode_switch_req response payload to an honest
-     * user message. The WLM replies via wlm_mode_switch_resp with three resp
-     * bytes + a 4-byte retcode: (0,0,0) = accepted (link-switch FSM started),
-     * (3,3,3) = requested mode not eligible right now (LTE link not
-     * available — dongle not paired/activated), (9,9,9) = invalid
-     * service_type/mode in the payload. Other documented error triplets
-     * (5,5,5)/(7,7,7)/(8,8,8) — duplicate request, target not found,
-     * link-mode gate — are reported verbatim as hex.
-     */
-    private fun interpretFourGResponse(resp: ByteArray?): String {
-        if (resp == null) {
-            return "Frame written, but no response within the read window — 4G status unknown. The DUSS router may not route the reply to this app."
-        }
-        fun triplet(v: Int) = resp.size >= 3 &&
-            resp[0] == v.toByte() && resp[1] == v.toByte() && resp[2] == v.toByte()
-        return when {
-            triplet(0) -> "4G switch request ACCEPTED by the controller (resp 0,0,0) — the link switch is running; check 4G status on the aircraft."
-            triplet(3) -> "4G switch REFUSED by the controller (resp 3,3,3): LTE link is not available yet. Pair and activate the cellular dongle first, then retry."
-            triplet(9) -> "4G request rejected as invalid (resp 9,9,9) — please report this response."
-            else -> "4G request answered: ${resp.joinToString(" ") { "%02X".format(it) }} — check 4G status on the aircraft."
-        }
     }
 
     /** Checks only whether the controller exposes the local 4G DUSS endpoint. */
