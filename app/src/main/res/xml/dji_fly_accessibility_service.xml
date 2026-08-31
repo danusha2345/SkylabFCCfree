@@ -4,4 +4,4 @@
     android:accessibilityFeedbackType="feedbackGeneric"
     android:canRetrieveWindowContent="true"
     android:notificationTimeout="100"
-    android:packageNames="dji.go.v5,com.dji.industry.pilot" />
+    android:packageNames="dji.go.v5,dji.go.v6,com.dji.industry.pilot" />

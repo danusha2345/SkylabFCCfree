@@ -9,6 +9,7 @@ plugins {
 android {
     namespace = "com.freefcc.app"
     compileSdk = 35
+    buildToolsVersion = "35.0.1"
 
     defaultConfig {
         applicationId = "com.freefcc.app"

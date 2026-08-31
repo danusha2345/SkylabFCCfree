@@ -135,6 +135,11 @@ another full apply while the controller remains on. Duplicate UI events are
 debounced for 30 seconds. Enable **SkylabFCCfree Home Point Test** once in
 Android Accessibility settings. The first attempt opens the required settings;
 after the service is enabled and you return to SkylabFCCfree, the mode starts.
+If the locally modified DJI Fly `dji.go.v6` ("Vitya") becomes active,
+SkylabFCCfree automatically pauses its standalone Auto FCC writer without
+forgetting the selected mode. Opening the stock `dji.go.v5` arms that saved
+mode again. Waiting for either package remains socket-free; do not keep both
+full DJI Fly applications running at the same time.
 
 **Auto FCC — every 10 sec** is the explicit periodic alternative. It is
 send-only: every ten seconds it writes the `07:30` country code for the
@@ -192,8 +197,9 @@ the app and use **Open DJI Fly** to enter DJI Fly.
 On the first **Auto FCC — Home Point** run, the button opens Android
 Accessibility settings automatically. Enable **SkylabFCCfree Home Point Test** and
 return to SkylabFCCfree; the pending text-based mode starts automatically. The
-service reads only accessibility events and visible text from `dji.go.v5`, and
-loads Home Point phrases from every locale present in the installed DJI Fly.
+service reads Home Point text only from `dji.go.v5`, observes `dji.go.v6` only
+to pause the standalone Auto FCC writer, and loads Home Point phrases from
+every locale present in the installed DJI Fly.
 Reading the screen does not open DUML; an armed Home Point match triggers one
 full FCC apply.
 

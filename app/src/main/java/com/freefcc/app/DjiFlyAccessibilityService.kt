@@ -85,7 +85,8 @@ internal object AircraftModelProbe {
 class DjiFlyAccessibilityService : AccessibilityService() {
 
     companion object {
-        private const val DJI_FLY_PACKAGE = "dji.go.v5"
+        private const val DJI_FLY_PACKAGE = AutoFccPackagePolicy.STOCK_FLY_PACKAGE
+        private const val VITYA_PACKAGE = AutoFccPackagePolicy.VITYA_PACKAGE
         private const val DJI_PILOT_2_PACKAGE = "com.dji.industry.pilot"
         private val MODEL_CAPTURE_PACKAGES = setOf(DJI_FLY_PACKAGE, DJI_PILOT_2_PACKAGE)
         private const val MODEL_UI_REWRITE_MS = 60_000L
@@ -110,6 +111,7 @@ class DjiFlyAccessibilityService : AccessibilityService() {
     private val serialCaptureBusy = AtomicBoolean(false)
     private val linkSessionProbeGate = DjiFlyLinkSessionProbeGate()
     private val modelObservationGate = AircraftModelObservationGate()
+    private var lastFlyPackage: String? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -120,14 +122,14 @@ class DjiFlyAccessibilityService : AccessibilityService() {
                 "phrases=${catalog.phrases.size} locales=${catalog.localeCount}; " +
                 "one identity probe per stable aircraft link; no timed or Home Point re-reads"
         )
-        if (AutoFccSelection.load(this) == AutoFccMode.HOME_POINT_TEXT) {
-            FccKeepaliveService.startSelectedMode(this)
-        }
+        rootInActiveWindow?.packageName?.toString()?.let(::syncAutoFccOwner)
         AppForegroundService.refresh(this)
     }
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val sourcePackage = event?.packageName?.toString() ?: return
+        syncAutoFccOwner(sourcePackage)
+        if (sourcePackage == VITYA_PACKAGE) return
         if (sourcePackage !in MODEL_CAPTURE_PACKAGES) return
 
         val values = buildSet {
@@ -168,6 +170,29 @@ class DjiFlyAccessibilityService : AccessibilityService() {
             // Already handled above, before anything could take the port.
         }
         captureAircraftModelFromUi("event", values)
+    }
+
+    private fun syncAutoFccOwner(sourcePackage: String) {
+        if (sourcePackage != DJI_FLY_PACKAGE && sourcePackage != VITYA_PACKAGE) return
+        val action = AutoFccPackagePolicy.action(lastFlyPackage, sourcePackage)
+        lastFlyPackage = sourcePackage
+        when (action) {
+            AutoFccPackageAction.PAUSE_FOR_VITYA -> {
+                if (FccKeepaliveService.isRunningFlagSet(this)) {
+                    FccKeepaliveService.stop(this, clearSelection = false)
+                }
+                FccViewModel.logServiceEvent(
+                    "AUTO FCC OWNER: paused standalone controller for Vitya (dji.go.v6)"
+                )
+            }
+            AutoFccPackageAction.RESUME_FOR_STOCK_FLY -> {
+                val started = FccKeepaliveService.startSelectedMode(this)
+                FccViewModel.logServiceEvent(
+                    "AUTO FCC OWNER: stock DJI Fly active; standalone controller armed=$started"
+                )
+            }
+            AutoFccPackageAction.NONE -> Unit
+        }
     }
 
     /** Reads the model straight off the DJI app screen without opening DUML. */
