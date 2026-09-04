@@ -149,8 +149,8 @@ alias `open_tcp_ports`), `proc_tcp_listeners`, `proc_udp_sockets`,
 `probe_payload_bytes=0`. The compatibility scan fields remain zero/false.
 Android may restrict individual `/proc/net/*` files; a denied source appears in
 `errors`; `inventory_complete=false` then means the passive snapshot is partial.
-See [RC2 port and stream map](RC2_PORT_AND_STREAM_MAP.md) for the live inventory,
-external scan, and `8902` framing evidence.
+The endpoint reports the live inventory, external scan status, and available
+framing evidence directly in its response.
 
 ## Raw DUML
 

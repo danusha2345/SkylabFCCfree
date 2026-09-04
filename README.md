@@ -65,19 +65,7 @@ A free and open-source Android app that unlocks FCC mode, sends experimental 4G 
 | **Open Profiles** | Command frames are plain JSON files you can inspect and edit |
 | **No Paid Activation** | No trial or external licensing backend |
 
-> **Note on altitude/distance/NFZ unlock:** there is no single universal DUML
-> command that disables every restriction layer. DJI Fly applies an app-side
-> C0/CE range, while the aircraft separately enforces FC parameters, beginner
-> mode, positioning-dependent ceilings, firmware policy and flysafe data.
-> `03:F9` can write a supported FC parameter, but that does not disable the
-> other layers or prove persistence. See the evidence-based
-> [DJI Fly / flight-controller interaction map](docs/DJI_FLY_FLIGHT_CONTROLLER_INTERACTION.md).
-
-The growing [DJI Fly Native Command and Capability Atlas](docs/dji_fly_atlas/README.md)
-is the canonical SQLite-backed index for DUML commands, payload fields,
-SDK/native/firmware implementations, product support, live observations and
-their evidence graph. New reverse-engineering findings should be linked there
-instead of being added only to isolated command lists.
+> **Note on altitude/distance/NFZ unlock:** This is **not possible** via DUML commands alone. The 120m CE altitude limit is enforced by the **DJI Fly app** via a C0 class runtime flag that overrides flight controller parameters on every connection. No FCC unlock app can bypass this — it requires modifying the DJI Fly app itself or flashing patched firmware. DUML parameter writes (cmd_set=3, cmd_id=0xF9) set the FC values, but the Fly app overrides them on every reconnect. There are three separate altitude layers (C0 class cap from the Fly app, no-GPS/ATTI ceiling from firmware, novice/beginner mode from firmware); only the firmware layers are DUML-addressable, and only the C0 class cap is the 120m limit users actually hit. There is no known way to bypass the C0 cap without modifying the DJI Fly app or flashing patched firmware.
 
 ## Download
 
@@ -220,11 +208,6 @@ full FCC apply.
 3. Open DJI Fly only with **Open DJI Fly**. Home Point mode remains armed and sends the full profile after every new flight-session Home Point, including after replacing the aircraft battery without restarting the controller. Ten-second mode is send-only: each tick writes the `07:30` country code for the selected region and re-applies the full profile once, with no `07:19` readback.
 4. For 4G diagnostics, tap **Probe 4G Endpoint** first. This is read-only and only checks whether `/duss/mb/0x205` is reachable. **Send 4G Activation Frames** remains experimental: it waits for the matching `51:1A` response, but even an accepted request only means that the controller started its link-switch flow, not that 4G became active.
    > **Note:** The integrated eSIM path on DJI Avata 360 is not yet proven compatible with the captured external-module profile. Please attach the LAN logs to an [issue](https://github.com/danusha2345/SkylabFCCfree/issues) when testing.
-   The receiving-side analysis of the legacy sweep is documented in
-   [Command set `0x51`](docs/WLM_CMDSET_51.md); the separate
-   [third-party FCC/4G application survey](docs/THIRD_PARTY_FCC_4G_APP_RESEARCH.md)
-   compares NLD FCC, OpenFCC, Drone Tweaks, Drone-Hacks and the official DJI
-   LTE path.
 5. The aircraft-control card is split evenly: GPS on the left and LED on the right. Each side has its own manual refresh and explicit ON/OFF buttons, available without starting Auto FCC first. GPS ON/OFF sends four bounded command cycles of five idempotent writes 100 ms apart, with 250 ms between cycles, releases port `40007`, and after 250 ms automatically runs a three-attempt status Refresh. Every status attempt opens a new port lease instead of reusing a failed one. The 20-write bound includes the equivalent of a second manual press because live `rc331` logs showed that the first ten writes can leave the verified state unchanged. LED ON/OFF makes at most two complete reference-pattern command cycles. GPS/LED stay on the wrapped `40007` path because live RC Pro 2 tests found no matching readback on `40009` or `8901`. The last validated replies persist across app reopen with a `Last verified` timestamp, and a failed manual refresh does not erase them. A GPS write invalidates the older cached value until the fresh Refresh completes, so the UI never presents the pre-command OFF/ON as current. Neither side polls port `40007` in the background.
 6. The **Info** tab shows the controller code, aircraft model name/code and
    factory S/N. DJI Fly and Pilot 2 screen text remains the preferred model-name
@@ -240,20 +223,14 @@ full FCC apply.
    bytes without sending anything or opening another socket. The bus spells one
    S/N two ways — `51:14` carries the full factory number, `03:44` only its
    last sixteen characters — and both are recognised as the same aircraft, with
-   the full form kept. How DJI Fly itself obtains the S/N and the model, read
-   out of its own APK, is documented in the
-   [DJI Fly identity map](docs/DJI_FLY_APK_IDENTITY_MAP.md).
-   The broader map of writable settings, actions, key-value routing, legacy
-   FLYC parameters and the boundary between tuning and replacing an algorithm
-   is documented in
-   [DJI Fly / flight-controller interaction](docs/DJI_FLY_FLIGHT_CONTROLLER_INTERACTION.md).
+   the full form kept.
    A changed product code replaces the previous aircraft identity even if DJI
    Fly never prints a model name on the FPV screen. A screen name still wins
    when it belongs to the same code, while the local `AircraftModelCatalog`
    names a code seen without a commercial name. Unknown safe alphanumeric
    aircraft codes are displayed as-is; controller codes beginning with `RC`,
    `RM`, or `GL` are rejected.
-7. The **Log** tab can start the LAN diagnostic API; since 1.5.51 it stays **off until you switch it on**. It uses unencrypted HTTP and a fixed shared password. A UDP beacon broadcasts only the controller IP and port across the current Wi-Fi subnet; it does not include the password, logs, or command payloads. Disable the bridge on untrusted Wi-Fi. See [LAN Control API](docs/LAN_CONTROL_API.md) and the evidence-based [RC2 port and stream map](docs/RC2_PORT_AND_STREAM_MAP.md).
+7. The **Log** tab can start the LAN diagnostic API; since 1.5.51 it stays **off until you switch it on**. It uses unencrypted HTTP and a fixed shared password. A UDP beacon broadcasts only the controller IP and port across the current Wi-Fi subnet; it does not include the password, logs, or command payloads. Disable the bridge on untrusted Wi-Fi. See [LAN Control API](docs/LAN_CONTROL_API.md).
 
 SkylabFCCfree also keeps a low-priority foreground notification visible while
 the controller is running. The service starts after controller boot and after
@@ -348,10 +325,7 @@ unrelated `max_height=500` write. Country readback confirms
 the controller country state, not physical RF power, so verify the Transmission
 graph in DJI Fly. Pressing Back moves SkylabFCCfree to the background instead
 of destroying its Activity; Android process death still requires a new
-**Auto FCC** Connect. See the [DUML command audit](docs/DUML_COMMAND_AUDIT.md)
-for the evidence level of every frame and the
-[RM510 command reference](docs/RM510_DUML_COMMAND_REFERENCE.md) for commands
-recovered from controller binaries.
+**Auto FCC** Connect.
 
 ### 4G Profile
 
@@ -397,19 +371,6 @@ reach its on/off action. The user's live send of the complete sweep produced
 no visible effect. These findings do not prove danger, activation or universal
 failure; they bound the profile as an unverified experiment with separate
 upstream compatibility claims.
-See [Avata 360/4G research](docs/AVATA360_4G_RESEARCH.md) and the
-[local firmware corpus](docs/FIRMWARE_CORPUS.md). The active RC Pro 2
-`0x51` handlers are listed separately in the
-[RC Pro 2 DUML command reference](docs/RC_PRO2_DUML_COMMAND_REFERENCE.md).
-The related `0x18` table, dongle activation, WLM negotiation, redial/reset
-conditions, and native scheduler periods are collected in the
-[DJI LTE command reference](docs/LTE_DUML_COMMAND_REFERENCE.md).
-
-Live USB/AT evidence for the tested Fibocom physical-SIM modem and the dual-
-function Quectel/eSIM unit is kept separately in
-[DJI cellular modem live map](docs/DJI_CELLULAR_MODEM_LIVE_MAP.md). The working
-Fibocom ECM/RNDIS sequence configures the modem bearer only; it does not replace
-the aircraft/controller 4G activation flow above.
 
 ### Profile Format
 
@@ -437,7 +398,7 @@ The DUML proxy on DJI controllers listens on `127.0.0.1:40009` and accepts plain
 tcpdump -i lo -w /sdcard/capture.pcap port 40009
 ```
 
-Profiles combine historical/upstream captures with commands verified during current RC2 work. A plausible legacy label is not treated as proof: the [DUML command audit](docs/DUML_COMMAND_AUDIT.md) records which meanings are confirmed, inferred, observed, or still unknown. The frames are plaintext on the local socket with no encryption. This project's `DumlBuilder` class implements the same CRC-8 (polynomial 0x8C reflected, init 0x77) and CRC-16 (polynomial 0x8408 reflected of 0x1021, init 0x3692) as the [dji-firmware-tools](https://github.com/o-gs/dji-firmware-tools) reference implementation. The wire layout is: `[0]=0x55 magic, [1-2]=length, [3]=CRC-8, [4]=sender, [5]=dst, [6-7]=seq, [8]=cmdType, [9]=cmdSet, [10]=cmdId, [11..N]=payload, [N+1..N+2]=CRC-16`.
+Profiles combine historical/upstream captures with commands verified during current RC2 work. The frames are plaintext on the local socket with no encryption. This project's `DumlBuilder` class implements the same CRC-8 (polynomial 0x8C reflected, init 0x77) and CRC-16 (polynomial 0x8408 reflected of 0x1021, init 0x3692) as the [dji-firmware-tools](https://github.com/o-gs/dji-firmware-tools) reference implementation. The wire layout is: `[0]=0x55 magic, [1-2]=length, [3]=CRC-8, [4]=sender, [5]=dst, [6-7]=seq, [8]=cmdType, [9]=cmdSet, [10]=cmdId, [11..N]=payload, [N+1..N+2]=CRC-16`.
 
 ## Project Structure
 

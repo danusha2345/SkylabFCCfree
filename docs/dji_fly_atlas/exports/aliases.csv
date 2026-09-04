@@ -1,9 +1,0 @@
-fly_version,cmd_set,cmd_id,aliases,declaration_count
-1.21.10,2,161,FormatSSD | FormatRawSSD,2
-1.21.10,3,105,RTKSwitch | SetRTKState,2
-1.21.10,3,106,GetPushAvoid | SetBatteryValidStste,2
-1.21.10,3,156,WayPointMissionSetIdleSpeed | SetFlightIdleSpeed,2
-1.21.10,4,10,SetAngle | AngleControl,2
-1.21.10,6,72,GetFreqModeInfo | GetRCParam,2
-1.21.10,7,41,SetSweepFrequency | RequestSnrPush,2
-1.21.10,10,155,SendPanoImus | SwitchSmartEyeScanFunction,2

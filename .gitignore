@@ -37,7 +37,17 @@ freefcc-helpers.zip
 local/
 ПО аналогичное для анализа/
 
-# Reproducible local DJI Fly atlas database; schema/seed/exports stay in Git
-docs/dji_fly_atlas/*.sqlite
-docs/dji_fly_atlas/*.sqlite-shm
-docs/dji_fly_atlas/*.sqlite-wal
+# Public repository keeps only application/development documentation.
+# Hardware diagnostics, firmware/DUML research and generated atlases stay local.
+docs/*
+!docs/ANONYMOUS_USAGE_STATISTICS_PLAN.md
+!docs/CODE_REVIEW_*.md
+!docs/HELPER_APK_PROVENANCE.md
+!docs/LAN_CONTROL_API.md
+!docs/USAGE_STATISTICS.md
+!docs/VOLUNTARY_DIAGNOSTIC_REPORT_PLAN.md
+diagnostics/
+tools/dji_fly_atlas.py
+tools/dji_fly_compare.py
+tests/test_dji_fly_atlas.py
+tests/test_dji_fly_compare.py
