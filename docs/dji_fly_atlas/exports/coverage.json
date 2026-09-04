@@ -1,10 +1,218 @@
 [
   {
+    "cmd_set": 0,
+    "cmd_set_name": "COMMON",
+    "curated_links": 0,
+    "declarations": 44,
+    "resolved_ids": 44,
+    "version": "1.21.10",
+    "wire_declarations": 43
+  },
+  {
+    "cmd_set": 1,
+    "cmd_set_name": "SPECIAL",
+    "curated_links": 0,
+    "declarations": 5,
+    "resolved_ids": 5,
+    "version": "1.21.10",
+    "wire_declarations": 4
+  },
+  {
+    "cmd_set": 2,
+    "cmd_set_name": "CAMERA",
+    "curated_links": 0,
+    "declarations": 181,
+    "resolved_ids": 181,
+    "version": "1.21.10",
+    "wire_declarations": 180
+  },
+  {
     "cmd_set": 3,
+    "cmd_set_name": "FLYC",
     "curated_links": 14,
     "declarations": 119,
     "resolved_ids": 119,
     "version": "1.21.10",
     "wire_declarations": 118
+  },
+  {
+    "cmd_set": 4,
+    "cmd_set_name": "GIMBAL",
+    "curated_links": 0,
+    "declarations": 34,
+    "resolved_ids": 34,
+    "version": "1.21.10",
+    "wire_declarations": 33
+  },
+  {
+    "cmd_set": 5,
+    "cmd_set_name": "CENTER",
+    "curated_links": 0,
+    "declarations": 12,
+    "resolved_ids": 12,
+    "version": "1.21.10",
+    "wire_declarations": 11
+  },
+  {
+    "cmd_set": 6,
+    "cmd_set_name": "RC",
+    "curated_links": 0,
+    "declarations": 71,
+    "resolved_ids": 71,
+    "version": "1.21.10",
+    "wire_declarations": 70
+  },
+  {
+    "cmd_set": 7,
+    "cmd_set_name": "WIFI",
+    "curated_links": 0,
+    "declarations": 39,
+    "resolved_ids": 39,
+    "version": "1.21.10",
+    "wire_declarations": 38
+  },
+  {
+    "cmd_set": 8,
+    "cmd_set_name": "DM368",
+    "curated_links": 0,
+    "declarations": 15,
+    "resolved_ids": 15,
+    "version": "1.21.10",
+    "wire_declarations": 14
+  },
+  {
+    "cmd_set": 9,
+    "cmd_set_name": "OSD",
+    "curated_links": 0,
+    "declarations": 59,
+    "resolved_ids": 59,
+    "version": "1.21.10",
+    "wire_declarations": 58
+  },
+  {
+    "cmd_set": 10,
+    "cmd_set_name": "EYE",
+    "curated_links": 0,
+    "declarations": 90,
+    "resolved_ids": 90,
+    "version": "1.21.10",
+    "wire_declarations": 89
+  },
+  {
+    "cmd_set": 11,
+    "cmd_set_name": "SIMULATOR",
+    "curated_links": 0,
+    "declarations": 21,
+    "resolved_ids": 21,
+    "version": "1.21.10",
+    "wire_declarations": 20
+  },
+  {
+    "cmd_set": 13,
+    "cmd_set_name": "SMARTBATTERY",
+    "curated_links": 0,
+    "declarations": 17,
+    "resolved_ids": 17,
+    "version": "1.21.10",
+    "wire_declarations": 16
+  },
+  {
+    "cmd_set": 15,
+    "cmd_set_name": "RTK",
+    "curated_links": 0,
+    "declarations": 25,
+    "resolved_ids": 25,
+    "version": "1.21.10",
+    "wire_declarations": 24
+  },
+  {
+    "cmd_set": 17,
+    "cmd_set_name": "ADS_B",
+    "curated_links": 0,
+    "declarations": 8,
+    "resolved_ids": 8,
+    "version": "1.21.10",
+    "wire_declarations": 7
+  },
+  {
+    "cmd_set": 21,
+    "cmd_set_name": "Glass",
+    "curated_links": 0,
+    "declarations": 2,
+    "resolved_ids": 2,
+    "version": "1.21.10",
+    "wire_declarations": 1
+  },
+  {
+    "cmd_set": 24,
+    "cmd_set_name": "Module4G",
+    "curated_links": 0,
+    "declarations": 10,
+    "resolved_ids": 10,
+    "version": "1.21.10",
+    "wire_declarations": 9
+  },
+  {
+    "cmd_set": 25,
+    "cmd_set_name": "OnboardSDK",
+    "curated_links": 0,
+    "declarations": 15,
+    "resolved_ids": 15,
+    "version": "1.21.10",
+    "wire_declarations": 14
+  },
+  {
+    "cmd_set": 31,
+    "cmd_set_name": "Flight",
+    "curated_links": 0,
+    "declarations": 5,
+    "resolved_ids": 5,
+    "version": "1.21.10",
+    "wire_declarations": 4
+  },
+  {
+    "cmd_set": 32,
+    "cmd_set_name": "NarrowBand",
+    "curated_links": 0,
+    "declarations": 5,
+    "resolved_ids": 5,
+    "version": "1.21.10",
+    "wire_declarations": 4
+  },
+  {
+    "cmd_set": 34,
+    "cmd_set_name": "FLYC2",
+    "curated_links": 0,
+    "declarations": 8,
+    "resolved_ids": 8,
+    "version": "1.21.10",
+    "wire_declarations": 7
+  },
+  {
+    "cmd_set": 35,
+    "cmd_set_name": "SMARTFUNCTION",
+    "curated_links": 0,
+    "declarations": 2,
+    "resolved_ids": 2,
+    "version": "1.21.10",
+    "wire_declarations": 1
+  },
+  {
+    "cmd_set": 36,
+    "cmd_set_name": "Perception",
+    "curated_links": 0,
+    "declarations": 3,
+    "resolved_ids": 3,
+    "version": "1.21.10",
+    "wire_declarations": 2
+  },
+  {
+    "cmd_set": 60,
+    "cmd_set_name": "PayloadSDK",
+    "curated_links": 0,
+    "declarations": 13,
+    "resolved_ids": 13,
+    "version": "1.21.10",
+    "wire_declarations": 12
   }
 ]

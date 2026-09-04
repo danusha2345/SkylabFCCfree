@@ -50,6 +50,16 @@ CREATE TABLE IF NOT EXISTS fly_versions (
     notes TEXT NOT NULL DEFAULT ''
 );
 
+CREATE TABLE IF NOT EXISTS command_sets (
+    id INTEGER PRIMARY KEY,
+    fly_version_id INTEGER NOT NULL REFERENCES fly_versions(id) ON DELETE CASCADE,
+    cmd_set INTEGER NOT NULL CHECK (cmd_set BETWEEN 0 AND 255),
+    declared_name TEXT NOT NULL,
+    source_path TEXT NOT NULL,
+    line_number INTEGER NOT NULL CHECK (line_number > 0),
+    UNIQUE (fly_version_id, cmd_set)
+);
+
 CREATE TABLE IF NOT EXISTS evidence (
     id INTEGER PRIMARY KEY,
     evidence_key TEXT NOT NULL UNIQUE,
@@ -148,10 +158,16 @@ SELECT
     c.summary
 FROM commands AS c;
 
-CREATE VIEW IF NOT EXISTS declaration_coverage AS
+DROP VIEW IF EXISTS declaration_coverage;
+CREATE VIEW declaration_coverage AS
 SELECT
     v.version,
     d.cmd_set,
+    COALESCE((
+        SELECT cs.declared_name
+        FROM command_sets cs
+        WHERE cs.fly_version_id=d.fly_version_id AND cs.cmd_set=d.cmd_set
+    ), '') AS cmd_set_name,
     COUNT(*) AS declarations,
     SUM(CASE WHEN d.cmd_id IS NOT NULL THEN 1 ELSE 0 END) AS resolved_ids,
     SUM(CASE WHEN d.command_id IS NOT NULL THEN 1 ELSE 0 END) AS curated_links,

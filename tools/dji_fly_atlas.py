@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sqlite3
 from pathlib import Path
 
@@ -24,58 +25,93 @@ def connect(db_path: Path) -> sqlite3.Connection:
     return connection
 
 
-def parse_flyc_enum(source_path: Path, version: str, constants: dict[str, int]) -> list[dict]:
+CMD_SET_HEADER = re.compile(
+    r"^\s*(?P<name>[A-Za-z][A-Za-z0-9_]*)\((?P<value>[^,]+), new UAVCmdSetBase\(\) \{"
+)
+
+
+def parse_cmdset_enums(
+    source_path: Path,
+    version: str,
+    constants: dict[str, int],
+    only_cmd_set: str | None = None,
+) -> list[dict]:
     lines = source_path.read_text(encoding="utf-8").splitlines()
-    flyc_start = next(index for index, line in enumerate(lines) if "FLYC(3," in line)
-    enum_start = next(index for index in range(flyc_start, len(lines)) if "public enum CmdIdType" in lines[index])
     rows = []
-    for index in range(enum_start + 1, len(lines)):
-        stripped = lines[index].strip()
-        if not stripped or stripped.startswith("/*"):
+    headers = [(index, match) for index, line in enumerate(lines) if (match := CMD_SET_HEADER.match(line))]
+    for header_index, header in headers:
+        cmd_set_name = header.group("name")
+        if only_cmd_set is not None and cmd_set_name != only_cmd_set:
             continue
-        if "(" not in stripped or not stripped.endswith((",", ";")):
-            if rows:
+        raw_cmd_set = header.group("value").strip()
+        cmd_set = int(raw_cmd_set, 0) if raw_cmd_set.isdecimal() or raw_cmd_set.startswith("0x") else constants.get(raw_cmd_set)
+        if cmd_set is None:
+            raise ValueError(f"unresolved command set value {raw_cmd_set!r} at line {header_index + 1}")
+        enum_start = next(
+            index for index in range(header_index + 1, len(lines))
+            if "public enum CmdIdType" in lines[index]
+        )
+        for index in range(enum_start + 1, len(lines)):
+            stripped = lines[index].strip()
+            if not stripped or stripped.startswith("/*"):
+                continue
+            if "(" not in stripped or not stripped.endswith((",", ";")):
+                if any(row["cmd_set_name"] == cmd_set_name for row in rows):
+                    break
+                continue
+            name, rest = stripped.split("(", 1)
+            arguments = rest.rsplit(")", 1)[0]
+            parts = [part.strip() for part in arguments.split(",")]
+            raw_value = parts[0]
+            if raw_value.startswith("0x"):
+                cmd_id = int(raw_value, 16)
+            elif raw_value.isdecimal():
+                cmd_id = int(raw_value)
+            else:
+                cmd_id = constants.get(raw_value)
+            handler = next((part.removesuffix(".class") for part in parts[1:] if part.endswith(".class")), "")
+            rows.append({
+                "fly_version": version,
+                "cmd_set_name": cmd_set_name,
+                "cmd_set": cmd_set,
+                "cmd_id": "" if cmd_id is None else cmd_id,
+                "declared_name": name.strip(),
+                "raw_value": raw_value,
+                "handler_class": handler,
+                "constructor_args": json.dumps(parts[1:], ensure_ascii=False, separators=(",", ":")),
+                "source_path": str(source_path),
+                "cmd_set_line_number": header_index + 1,
+                "line_number": index + 1,
+                "is_sentinel": int(name.strip() == "Other" or (cmd_id is not None and cmd_id > 255)),
+            })
+            if stripped.endswith(";"):
                 break
-            continue
-        name, rest = stripped.split("(", 1)
-        arguments = rest.rsplit(")", 1)[0]
-        parts = [part.strip() for part in arguments.split(",")]
-        raw_value = parts[0]
-        if raw_value.startswith("0x"):
-            cmd_id = int(raw_value, 16)
-        elif raw_value.isdecimal():
-            cmd_id = int(raw_value)
-        else:
-            cmd_id = constants.get(raw_value)
-        handler = next((part.removesuffix(".class") for part in parts[1:] if part.endswith(".class")), "")
-        rows.append({
-            "fly_version": version,
-            "cmd_set": 3,
-            "cmd_id": "" if cmd_id is None else cmd_id,
-            "declared_name": name.strip(),
-            "raw_value": raw_value,
-            "handler_class": handler,
-            "constructor_args": json.dumps(parts[1:], ensure_ascii=False, separators=(",", ":")),
-            "source_path": str(source_path),
-            "line_number": index + 1,
-            "is_sentinel": int(name.strip() == "Other" or (cmd_id is not None and cmd_id > 255)),
-        })
-        if stripped.endswith(";"):
-            break
     if not rows:
-        raise ValueError(f"FLYC CmdIdType enum not found in {source_path}")
+        label = only_cmd_set or "command set"
+        raise ValueError(f"{label} CmdIdType enum not found in {source_path}")
     return rows
 
 
-def extract_flyc_enum(source_path: Path, version: str, output_path: Path, constants: dict[str, int]) -> None:
-    rows = parse_flyc_enum(source_path, version, constants)
+def parse_flyc_enum(source_path: Path, version: str, constants: dict[str, int]) -> list[dict]:
+    return parse_cmdset_enums(source_path, version, constants, only_cmd_set="FLYC")
+
+
+def extract_cmdset_enums(
+    source_path: Path,
+    version: str,
+    output_path: Path,
+    constants: dict[str, int],
+    only_cmd_set: str | None = None,
+) -> None:
+    rows = parse_cmdset_enums(source_path, version, constants, only_cmd_set=only_cmd_set)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with output_path.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=tuple(rows[0]), lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
     unresolved = sum(row["cmd_id"] == "" for row in rows)
-    print(f"extracted {len(rows)} FLYC declarations to {output_path}; unresolved_ids={unresolved}")
+    scope = only_cmd_set or "all command sets"
+    print(f"extracted {len(rows)} declarations from {scope} to {output_path}; unresolved_ids={unresolved}")
 
 
 def import_declarations(connection: sqlite3.Connection) -> None:
@@ -86,6 +122,21 @@ def import_declarations(connection: sqlite3.Connection) -> None:
                     "INSERT OR IGNORE INTO fly_versions(version, notes) VALUES (?, ?)",
                     (row["fly_version"], "Imported command declarations"),
                 )
+                if row.get("cmd_set_name"):
+                    connection.execute(
+                        """
+                        INSERT INTO command_sets(fly_version_id, cmd_set, declared_name, source_path, line_number)
+                        VALUES ((SELECT id FROM fly_versions WHERE version=?), ?, ?, ?, ?)
+                        ON CONFLICT(fly_version_id, cmd_set) DO UPDATE SET
+                            declared_name=excluded.declared_name,
+                            source_path=excluded.source_path,
+                            line_number=excluded.line_number
+                        """,
+                        (
+                            row["fly_version"], int(row["cmd_set"]), row["cmd_set_name"],
+                            row["source_path"], int(row.get("cmd_set_line_number") or row["line_number"]),
+                        ),
+                    )
                 connection.execute(
                     """
                     INSERT INTO command_declarations(
@@ -234,7 +285,7 @@ def check(db_path: Path) -> None:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("init", "export", "check", "build", "extract-flyc-enum"))
+    parser.add_argument("command", choices=("init", "export", "check", "build", "extract-flyc-enum", "extract-cmdsets"))
     parser.add_argument("--db", type=Path, default=DEFAULT_DB)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_EXPORT_DIR)
     parser.add_argument("--source", type=Path)
@@ -246,15 +297,17 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    if args.command == "extract-flyc-enum":
+    if args.command in ("extract-flyc-enum", "extract-cmdsets"):
         if args.source is None:
             raise SystemExit("--source is required for extract-flyc-enum")
         constants = {}
         for item in args.constant:
             name, value = item.split("=", 1)
             constants[name] = int(value, 0)
-        output = args.import_output or DEFAULT_IMPORT_DIR / f"flyc_cmd_ids_{args.version}.csv"
-        extract_flyc_enum(args.source, args.version, output, constants)
+        prefix = "flyc_cmd_ids" if args.command == "extract-flyc-enum" else "all_cmd_ids"
+        output = args.import_output or DEFAULT_IMPORT_DIR / f"{prefix}_{args.version}.csv"
+        only_cmd_set = "FLYC" if args.command == "extract-flyc-enum" else None
+        extract_cmdset_enums(args.source, args.version, output, constants, only_cmd_set=only_cmd_set)
         return
     if args.command in ("init", "build"):
         initialize(args.db)
