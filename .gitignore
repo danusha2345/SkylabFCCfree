@@ -13,6 +13,7 @@ gradle/.gradle/
 .kotlin/
 __pycache__/
 *.pyc
+.scratch
 .scratch/
 .playwright-cli/
 .codegraph/
@@ -34,6 +35,7 @@ freefcc-helpers.zip
 
 # Локальные инструменты/дампы под конкретное железо, не для публикации
 local/
+ПО аналогичное для анализа/
 
 # Reproducible local DJI Fly atlas database; schema/seed/exports stay in Git
 docs/dji_fly_atlas/*.sqlite
