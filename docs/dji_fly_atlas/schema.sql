@@ -71,6 +71,22 @@ CREATE TABLE IF NOT EXISTS implementations (
     UNIQUE (command_id, fly_version_id, layer, symbol)
 );
 
+CREATE TABLE IF NOT EXISTS command_declarations (
+    id INTEGER PRIMARY KEY,
+    command_id INTEGER REFERENCES commands(id) ON DELETE SET NULL,
+    fly_version_id INTEGER NOT NULL REFERENCES fly_versions(id) ON DELETE CASCADE,
+    cmd_set INTEGER NOT NULL CHECK (cmd_set BETWEEN 0 AND 255),
+    cmd_id INTEGER CHECK (cmd_id IS NULL OR cmd_id BETWEEN 0 AND 511),
+    declared_name TEXT NOT NULL,
+    raw_value TEXT NOT NULL,
+    handler_class TEXT NOT NULL DEFAULT '',
+    constructor_args TEXT NOT NULL DEFAULT '[]',
+    source_path TEXT NOT NULL,
+    line_number INTEGER NOT NULL CHECK (line_number > 0),
+    is_sentinel INTEGER NOT NULL DEFAULT 0 CHECK (is_sentinel IN (0, 1)),
+    UNIQUE (fly_version_id, cmd_set, declared_name)
+);
+
 CREATE TABLE IF NOT EXISTS product_support (
     id INTEGER PRIMARY KEY,
     command_id INTEGER NOT NULL REFERENCES commands(id) ON DELETE CASCADE,
@@ -107,6 +123,7 @@ CREATE TABLE IF NOT EXISTS relationships (
 CREATE INDEX IF NOT EXISTS idx_commands_name ON commands(name);
 CREATE INDEX IF NOT EXISTS idx_payload_command ON payload_fields(command_id, message_kind, byte_offset);
 CREATE INDEX IF NOT EXISTS idx_observations_command ON observations(command_id, observed_at);
+CREATE INDEX IF NOT EXISTS idx_declarations_wire ON command_declarations(cmd_set, cmd_id);
 CREATE INDEX IF NOT EXISTS idx_relationships_source ON relationships(source_ref);
 CREATE INDEX IF NOT EXISTS idx_relationships_target ON relationships(target_ref);
 
@@ -130,3 +147,15 @@ SELECT
     c.risk_level,
     c.summary
 FROM commands AS c;
+
+CREATE VIEW IF NOT EXISTS declaration_coverage AS
+SELECT
+    v.version,
+    d.cmd_set,
+    COUNT(*) AS declarations,
+    SUM(CASE WHEN d.cmd_id IS NOT NULL THEN 1 ELSE 0 END) AS resolved_ids,
+    SUM(CASE WHEN d.command_id IS NOT NULL THEN 1 ELSE 0 END) AS curated_links,
+    SUM(CASE WHEN d.is_sentinel = 0 THEN 1 ELSE 0 END) AS wire_declarations
+FROM command_declarations AS d
+JOIN fly_versions AS v ON v.id = d.fly_version_id
+GROUP BY v.version, d.cmd_set;
