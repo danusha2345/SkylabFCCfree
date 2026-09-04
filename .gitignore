@@ -47,6 +47,7 @@ docs/*
 !docs/USAGE_STATISTICS.md
 !docs/VOLUNTARY_DIAGNOSTIC_REPORT_PLAN.md
 diagnostics/
+research/
 tools/dji_fly_atlas.py
 tools/dji_fly_compare.py
 tests/test_dji_fly_atlas.py
