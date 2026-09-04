@@ -65,7 +65,19 @@ A free and open-source Android app that unlocks FCC mode, sends experimental 4G 
 | **Open Profiles** | Command frames are plain JSON files you can inspect and edit |
 | **No Paid Activation** | No trial or external licensing backend |
 
-> **Note on altitude/distance/NFZ unlock:** This is **not possible** via DUML commands alone. The 120m CE altitude limit is enforced by the **DJI Fly app** via a C0 class runtime flag that overrides flight controller parameters on every connection. No FCC unlock app can bypass this — it requires modifying the DJI Fly app itself or flashing patched firmware. DUML parameter writes (cmd_set=3, cmd_id=0xF9) set the FC values, but the Fly app overrides them on every reconnect. There are three separate altitude layers (C0 class cap from the Fly app, no-GPS/ATTI ceiling from firmware, novice/beginner mode from firmware); only the firmware layers are DUML-addressable, and only the C0 class cap is the 120m limit users actually hit. There is no known way to bypass the C0 cap without modifying the DJI Fly app or flashing patched firmware.
+> **Note on altitude/distance/NFZ unlock:** there is no single universal DUML
+> command that disables every restriction layer. DJI Fly applies an app-side
+> C0/CE range, while the aircraft separately enforces FC parameters, beginner
+> mode, positioning-dependent ceilings, firmware policy and flysafe data.
+> `03:F9` can write a supported FC parameter, but that does not disable the
+> other layers or prove persistence. See the evidence-based
+> [DJI Fly / flight-controller interaction map](docs/DJI_FLY_FLIGHT_CONTROLLER_INTERACTION.md).
+
+The growing [DJI Fly Native Command and Capability Atlas](docs/dji_fly_atlas/README.md)
+is the canonical SQLite-backed index for DUML commands, payload fields,
+SDK/native/firmware implementations, product support, live observations and
+their evidence graph. New reverse-engineering findings should be linked there
+instead of being added only to isolated command lists.
 
 ## Download
 
@@ -231,6 +243,10 @@ full FCC apply.
    the full form kept. How DJI Fly itself obtains the S/N and the model, read
    out of its own APK, is documented in the
    [DJI Fly identity map](docs/DJI_FLY_APK_IDENTITY_MAP.md).
+   The broader map of writable settings, actions, key-value routing, legacy
+   FLYC parameters and the boundary between tuning and replacing an algorithm
+   is documented in
+   [DJI Fly / flight-controller interaction](docs/DJI_FLY_FLIGHT_CONTROLLER_INTERACTION.md).
    A changed product code replaces the previous aircraft identity even if DJI
    Fly never prints a model name on the FPV screen. A screen name still wins
    when it belongs to the same code, while the local `AircraftModelCatalog`

@@ -1,0 +1,8 @@
+source_ref,relation,target_ref,notes
+cmd:03:31,REQUIRES,state:GNSS_VALID,FC rejects without a valid GNSS solution.
+cmd:03:31,UPDATES,state:HOME_POINT,
+cmd:03:F9,WRITES,entity:FC_PARAMETER,
+cmd:10:13,ROUTES_TO,host:MVISION_4_0x92,Exact host derived from fstest.json and observed bus traffic.
+cmd:59:02,RETURNS_ON_AVATA_360,ccode:E0_INVALID_CMD,
+param:without_gps_allowed,DOES_NOT_BYPASS,check:SET_HOME_POINT_GPS_READY,Live A/B on Avata 360.
+state:HOME_POINT,AFFECTS,state:HEIGHT_LIMIT_REASON,Runtime relationship; exact limiter remains state-machine driven.
