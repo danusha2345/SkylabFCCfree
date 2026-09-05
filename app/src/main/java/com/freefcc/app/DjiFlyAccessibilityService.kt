@@ -245,6 +245,9 @@ class DjiFlyAccessibilityService : AccessibilityService() {
             putLong(FccViewModel.PREF_AIRCRAFT_MODEL_AT, now)
         }.apply()
         if (aircraftSwapped) {
+            // The screen can prove a swap before the new aircraft publishes
+            // its serial. Do not keep GPS/LED addresses from the old aircraft.
+            ParameterAddress.forgetAllConfirmed()
             // The next connected UI snapshot performs one bounded serial query
             // for the new aircraft. No timer or Home Point event can re-arm it.
             linkSessionProbeGate.rearmForConfirmedAircraftChange()

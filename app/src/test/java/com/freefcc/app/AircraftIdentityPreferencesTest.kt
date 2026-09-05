@@ -2,12 +2,63 @@ package com.freefcc.app
 
 import android.content.SharedPreferences
 import java.lang.reflect.Proxy
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AircraftIdentityPreferencesTest {
+    @After
+    fun clearParameterConfirmations() {
+        ParameterAddress.forgetAllConfirmed()
+    }
+
+    @Test
+    fun modelSwapBeforeSerialArrivesForgetsBothParameterAddresses() {
+        for (previousSerial in listOf("", "1581F9DEC25AQ02998T5")) {
+            val prefs = inMemoryPreferences(
+                mapOf(
+                    FccViewModel.PREF_AIRCRAFT_MODEL_CODE to "WA341",
+                    FccViewModel.PREF_AIRCRAFT_MODEL_NAME to "DJI Mini 5 Pro",
+                    AircraftSerialGuard.KEY_SERIAL to previousSerial
+                )
+            )
+            val addresses = listOf(ParameterAddress.GPS_ENABLE, ParameterAddress.FOREARM_LED)
+            addresses.forEach { it.confirm(it.candidates.last()) }
+
+            AircraftIdentityPreferences.updateFromDuml(
+                prefs, AircraftModelIdentity("WA530", "DJI Avata 360"), null, 10_000L
+            )
+
+            addresses.forEach {
+                assertFalse(it.isConfirmed)
+                assertEquals(it.candidates.size, it.spellingsToTry().size)
+            }
+        }
+    }
+
+    @Test
+    fun unchangedAircraftKeepsBothParameterAddresses() {
+        val prefs = inMemoryPreferences(
+            mapOf(
+                FccViewModel.PREF_AIRCRAFT_MODEL_CODE to "WA530",
+                FccViewModel.PREF_AIRCRAFT_MODEL_NAME to "DJI Avata 360"
+            )
+        )
+        val addresses = listOf(ParameterAddress.GPS_ENABLE, ParameterAddress.FOREARM_LED)
+        addresses.forEach { it.confirm(it.candidates.last()) }
+
+        AircraftIdentityPreferences.updateFromDuml(
+            prefs, AircraftModelIdentity("WA530", "DJI Avata 360"), null, 10_000L
+        )
+
+        addresses.forEach {
+            assertTrue(it.isConfirmed)
+            assertTrue(it.preferred().contentEquals(it.candidates.last()))
+        }
+    }
+
     @Test
     fun freshDumlCodeReplacesThePreviousAircraftScreenName() {
         val prefs = inMemoryPreferences(

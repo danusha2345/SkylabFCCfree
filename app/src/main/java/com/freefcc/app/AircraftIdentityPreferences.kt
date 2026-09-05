@@ -127,9 +127,10 @@ internal object AircraftIdentityPreferences {
         }
         val serialChanged = currentSerial != previousSerial
 
-        if (confirmedSerialSwap) {
+        if (confirmedSerialSwap || confirmedModelSwap) {
             // The parameter name this aircraft answers to is a fact about the
-            // aircraft, so it does not survive one leaving. Keeping it would
+            // aircraft, so a model swap must clear it even before the new S/N
+            // arrives. Keeping it would
             // send the first write of the new aircraft to a name it may not
             // have — a switch that reports success and does nothing.
             ParameterAddress.forgetAllConfirmed()
