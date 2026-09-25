@@ -126,6 +126,28 @@ class AircraftModelCatalogTest {
     }
 
     @Test
+    fun ignoresSentenceFragmentsThatStartWithDji() {
+        // Values that reached the statistics server as aircraft names.
+        listOf(
+            "DJI Aircraft Terms of Use",
+            "DJI Terms of Use",
+            "DJI Mavic3 Series",
+            "DJI Aircraft",
+            "Read the DJI Terms of Use"
+        ).forEach { label ->
+            assertNull(label, AircraftModelCatalog.findOnScreen(listOf(label, "Battery 87%")))
+        }
+    }
+
+    @Test
+    fun readsTheModelInFrontOfAForeignWord() {
+        assertEquals(
+            "DJI Lito X1",
+            AircraftModelCatalog.findOnScreen(listOf("DJI Lito X1 donanım yazılımı"))?.name
+        )
+    }
+
+    @Test
     fun readsAnUnknownNameOutOfASentence() {
         val match = AircraftModelCatalog.findOnScreen(
             listOf("Подключено: DJI Zephyr 9", "Battery 87%")

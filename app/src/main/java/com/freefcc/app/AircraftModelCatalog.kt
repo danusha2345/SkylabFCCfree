@@ -130,6 +130,13 @@ internal object AircraftModelCatalog {
         "MAVIC", "AIR", "MINI", "PHANTOM", "INSPIRE", "MATRICE"
     )
 
+    /** Non-numeric words that DJI puts after a family, as in `Mini 4 Pro` or `Mavic 3 Classic`. */
+    private val MODEL_WORDS = setOf(
+        "PRO", "SE", "CLASSIC", "CINE", "PLUS", "MAX", "ENTERPRISE", "E", "T", "M", "S"
+    )
+
+    private val CATALOG_NAMES: Set<String> = NAME_BY_CODE.values.map(::normalize).toSet()
+
     fun nameForCode(code: String): String =
         NAME_BY_CODE[code.trim().uppercase(Locale.US)].orEmpty()
 
@@ -223,7 +230,21 @@ internal object AircraftModelCatalog {
         // A family on its own is not an aircraft. Live logs showed `DJI Mavic`
         // and `DJI Air` picked off a screen while a Mini 5 Pro was connected;
         // read as a model they replace the real one and look like a swap.
-        return !(words.size == 2 && family in AIRCRAFT_FAMILY_WORDS)
+        // Any other bare two-word caption must be a model the catalog knows:
+        // `DJI Neo` is, `DJI Aircraft` or `DJI Terms` are not.
+        if (words.size == 2) {
+            return family !in AIRCRAFT_FAMILY_WORDS && normalize(value) in CATALOG_NAMES
+        }
+        // Every word after the family must look like a model designation.
+        // Field reports carried sentence fragments cut to three words —
+        // `DJI Aircraft Terms of`, `DJI Terms of Use`, `DJI Lito X1 donan`,
+        // `DJI Mavic3 Series` — which a real model name never contains.
+        return words.drop(2).all(::isModelWord)
+    }
+
+    private fun isModelWord(word: String): Boolean {
+        val upper = word.uppercase(Locale.US)
+        return upper in MODEL_WORDS || (upper.length <= 6 && upper.any(Char::isDigit))
     }
 
     /** Collapses screen whitespace but keeps the text exactly as printed. */
