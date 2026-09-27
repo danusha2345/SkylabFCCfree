@@ -10,8 +10,8 @@
 
 ### Say thanks to the author
 
-**USDT (TRC20):** `TKW1yLVa8F1A25vfuPaYoa891oLh1aLN7S`<br>
-**GRAM (TON):** `UQCYT0YE53DU3Zp957ouuwRn-lF8STtbwuRzjn6CMJcXiP0R`
+**USDT (TRC20):** `THyBqiMTWQ7kUH6vVBEdboL7yGLj5mCSrX`<br>
+**GRAM (TON):** `UQDOgjGljFVJiHo_c9JLuX4hF2UQ2SXqSXhj3-1RefFMA4tB`
 
 A free and open-source Android app that unlocks FCC mode, sends experimental 4G activation frames, and queries device info on DJI smart controllers with a screen (RC2, RC Pro 2, RC Plus). Commands run locally from inspectable JSON profiles.
 
