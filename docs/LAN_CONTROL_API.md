@@ -97,6 +97,13 @@ probe. The automatic S/N read makes at most two `600 ms` request/response
 attempts and never adds a passive model-listen window; model discovery remains
 screen-only. Manual serial/GPS/LED/4G actions can still open `40007` explicitly.
 
+Занятая hardware/port lock откладывает автоматический probe, не расходуя попытку
+этого соединения. После реально отправленного запроса без ответа новое чтение
+по-прежнему ждёт следующего соединения. Перед каждой явной отправкой 4G S/N
+читается заново. Пассивная identity извлекается только из payload полных
+CRC-valid кадров, без заголовка и checksum. Ручная смена identity сбрасывает
+GPS/LED-адреса прежнего борта.
+
 ## Bounded OpenFCC/DJI logcat capture
 
 `logcat_capture` starts a narrow read-only capture for OpenFCC and DJI LTE/WLM

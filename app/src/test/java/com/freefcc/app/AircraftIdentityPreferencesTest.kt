@@ -9,6 +9,72 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class AircraftIdentityPreferencesTest {
+    @Test
+    fun manualRefreshKeepsTheFreshModelBesideTheNewSerial() {
+        val prefs = inMemoryPreferences(mapOf(
+            FccViewModel.PREF_AIRCRAFT_MODEL_CODE to "WA341",
+            FccViewModel.PREF_AIRCRAFT_MODEL_NAME to "DJI Mini 5 Pro",
+            AircraftSerialGuard.KEY_SERIAL to "1581FAKE000000000001"
+        ))
+        val result = AircraftIdentityPreferences.updateFromManualRead(
+            prefs, "1581FAKE000000000002", 10_000L,
+            AircraftModelIdentity("WA530", "DJI Avata 360")
+        )
+        assertEquals("1581FAKE000000000002", result.currentSerial)
+        assertEquals(AircraftModelIdentity("WA530", "DJI Avata 360"), result.currentModel)
+    }
+    @Test
+    fun manualSerialSwapDropsPreviousModelAndBothParameterAddresses() {
+        val prefs = inMemoryPreferences(mapOf(
+            FccViewModel.PREF_AIRCRAFT_MODEL_CODE to "WA341",
+            FccViewModel.PREF_AIRCRAFT_MODEL_NAME to "DJI Mini 5 Pro",
+            AircraftSerialGuard.KEY_SERIAL to "1581FAKE000000000001"
+        ))
+        val addresses = listOf(ParameterAddress.GPS_ENABLE, ParameterAddress.FOREARM_LED)
+        addresses.forEach { it.confirm(it.candidates.last()) }
+
+        val result = AircraftIdentityPreferences.updateFromManualRead(
+            prefs, "1581FAKE000000000002", 10_000L
+        )
+
+        assertEquals("1581FAKE000000000002", result.currentSerial)
+        assertEquals(AircraftModelIdentity(), result.currentModel)
+        assertEquals("", prefs.getString(FccViewModel.PREF_AIRCRAFT_MODEL_CODE, ""))
+        addresses.forEach { assertFalse(it.isConfirmed) }
+    }
+
+    @Test
+    fun manualReadingOfSameAircraftKeepsFullSerialModelAndAddresses() {
+        val serial = "1581FA8JC264600B31QZ"
+        val prefs = inMemoryPreferences(mapOf(
+            FccViewModel.PREF_AIRCRAFT_MODEL_CODE to "WA530",
+            FccViewModel.PREF_AIRCRAFT_MODEL_NAME to "DJI Avata 360",
+            AircraftSerialGuard.KEY_SERIAL to serial
+        ))
+        val address = ParameterAddress.GPS_ENABLE
+        address.confirm(address.candidates.last())
+
+        val result = AircraftIdentityPreferences.updateFromManualRead(
+            prefs, serial.removePrefix("1581"), 10_000L
+        )
+
+        assertEquals(serial, result.currentSerial)
+        assertEquals("WA530", result.currentModel.modelCode)
+        assertTrue(address.isConfirmed)
+    }
+
+    @Test
+    fun manualModelChangeClearsPreviousSerialAndParameterAddresses() {
+        val prefs = inMemoryPreferences(mapOf(
+            FccViewModel.PREF_AIRCRAFT_MODEL_CODE to "WA341",
+            AircraftSerialGuard.KEY_SERIAL to "1581FAKE000000000001"
+        ))
+        ParameterAddress.GPS_ENABLE.confirm(ParameterAddress.GPS_ENABLE.candidates.last())
+        val result = AircraftIdentityPreferences.updateFromManualRead(prefs, "WA530", 10_000L)
+        assertEquals("", result.currentSerial)
+        assertEquals("WA530", result.currentModel.modelCode)
+        assertFalse(ParameterAddress.GPS_ENABLE.isConfirmed)
+    }
     @After
     fun clearParameterConfirmations() {
         ParameterAddress.forgetAllConfirmed()

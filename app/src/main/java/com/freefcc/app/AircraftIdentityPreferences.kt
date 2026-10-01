@@ -17,6 +17,23 @@ internal data class AircraftIdentityPreferenceUpdate(
 
 /** Applies one passive-link identity observation before statistics are scheduled. */
 internal object AircraftIdentityPreferences {
+    /** Ручное чтение применяет те же правила смены борта, что и Accessibility. */
+    fun updateFromManualRead(
+        prefs: SharedPreferences,
+        raw: String,
+        nowMs: Long,
+        observedModel: AircraftModelIdentity? = null
+    ): AircraftIdentityPreferenceUpdate {
+        val value = raw.trim().uppercase(Locale.US)
+        val isModelCode = Regex("^W[AM][0-9]{3}[0-9A-Z]?$").matches(value)
+        return updateFromDuml(
+            prefs,
+            observedModel = if (isModelCode) AircraftModelIdentity(modelCode = value) else observedModel,
+            observedSerial = value.takeUnless { isModelCode || it.isEmpty() },
+            nowMs = nowMs
+        )
+    }
+
     /**
      * DJI Fly prints editions the catalog does not carry, such as
      * `DJI Avata 360 Enhanced Transmission edition`. A screen name that adds

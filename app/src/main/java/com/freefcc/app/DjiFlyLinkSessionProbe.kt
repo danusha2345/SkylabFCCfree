@@ -50,35 +50,40 @@ internal object DjiFlyLinkUiClassifier {
 internal class DjiFlyLinkSessionProbeGate(
     private val stableDisconnectMs: Long = 10_000L
 ) {
-    private var probeSpent = false
+    private var generation = 0L
+    private var probeToken: Long? = null
     private var disconnectedAtMs: Long? = null
 
     @Synchronized
-    fun onUiState(state: DjiFlyLinkUiState, nowMs: Long): Boolean = when (state) {
-        DjiFlyLinkUiState.UNKNOWN -> false
+    fun onUiState(state: DjiFlyLinkUiState, nowMs: Long): Long? = when (state) {
+        DjiFlyLinkUiState.UNKNOWN -> null
         DjiFlyLinkUiState.DISCONNECTED -> {
             if (disconnectedAtMs == null) disconnectedAtMs = nowMs
-            false
+            null
         }
         DjiFlyLinkUiState.CONNECTED -> {
             val disconnectedAt = disconnectedAtMs
             if (disconnectedAt != null && nowMs - disconnectedAt >= stableDisconnectMs) {
-                probeSpent = false
+                probeToken = null
             }
             disconnectedAtMs = null
-            if (probeSpent) {
-                false
-            } else {
-                probeSpent = true
-                true
-            }
+            if (probeToken != null) null else (++generation).also { probeToken = it }
         }
     }
+
+    /** Занятый порт не расходует попытку; старый worker не отменяет новый token. */
+    @Synchronized
+    fun releaseUnstartedProbe(token: Long) {
+        if (probeToken == token) probeToken = null
+    }
+
+    @Synchronized
+    fun isCurrentProbe(token: Long): Boolean = probeToken == token
 
     /** A confirmed screen-model change is a new aircraft even without another UI disconnect. */
     @Synchronized
     fun rearmForConfirmedAircraftChange() {
-        probeSpent = false
+        probeToken = null
         disconnectedAtMs = null
     }
 }

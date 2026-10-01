@@ -33,7 +33,8 @@ Backend source, фактический адрес, порты, конфигур�
   accessibility/пассивным identity flow приложения;
 - настройки `auto_fcc_mode`, `home_point_accessibility_enabled` и
   `lan_control_enabled`;
-- абсолютные счётчики действий по каждой версии SkylabFCCfree:
+- абсолютные счётчики действий по каждой версии SkylabFCCfree (вся история
+  обновлений; сборщик не ограничивает её двадцатью версиями):
   `manual_fcc`, оба режима Auto FCC и выключение, `gps_on`, `gps_off`,
   `led_on`, `led_off`, `four_g_activate`, `launch_dji_fly`.
 

@@ -93,8 +93,9 @@ class AircraftModelIdentityTest {
     fun extractsSerialAndModelFromTheSamePassiveWindow() {
         val serial = "1581FAKE000000000001"
         val identity = DumlTransport.extractAircraftLinkIdentity(
-            buffer = "binary-prefix\u0000$serial\u0000binary-suffix",
-            frames = listOf(modelCodeFrame("WA530"))
+            frames = listOf(modelCodeFrame("WA530"), DumlBuilder().buildFrame(
+                DumlFrame(3, 0x80, 0x51, 0x14, 2, serial.toByteArray())
+            ))
         )
 
         assertEquals(serial, identity.serial)

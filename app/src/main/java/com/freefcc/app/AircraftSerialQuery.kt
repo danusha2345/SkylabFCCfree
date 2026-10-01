@@ -73,6 +73,13 @@ internal object AircraftSerialProtocol {
 /** Runs the `00:51` serial query over the LED port with bounded retries. */
 internal object AircraftSerialQueryRunner {
 
+    /** Для адресного запроса каждый раз читаем текущий борт, без кэша S/N. */
+    fun readCurrent(
+        query: () -> String,
+        passive: () -> String,
+        acceptsPassive: (String) -> Boolean
+    ): String = query().ifEmpty { passive().takeIf(acceptsPassive).orEmpty() }
+
     // One request is often lost on 40007 — the port carries the FPV mirror, and
     // a live run answered four times out of six. Retries are cheap because a
     // successful exchange returns as soon as the reply is matched, unlike the

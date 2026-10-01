@@ -6,6 +6,35 @@ import org.junit.Test
 
 class AircraftSerialQueryTest {
 
+    @Test
+    fun targetedSendsReadAgainAfterAircraftChanges() {
+        var linkedSerial = "1581FAKE000000000001"
+        var queries = 0
+        fun read() = AircraftSerialQueryRunner.readCurrent(
+            query = { queries++; linkedSerial },
+            passive = { error("A matching reply must not open a passive listen") },
+            acceptsPassive = { false }
+        )
+        assertEquals(linkedSerial, read())
+        linkedSerial = "1581FAKE000000000002"
+        assertEquals(linkedSerial, read())
+        assertEquals(2, queries)
+    }
+
+    @Test
+    fun targetedSendRejectsLingeringSerialInPassiveFallback() {
+        assertEquals("", AircraftSerialQueryRunner.readCurrent(
+            query = { "" },
+            passive = { "1581FAKE000000000001" },
+            acceptsPassive = { false }
+        ))
+        assertEquals("1581FAKE000000000002", AircraftSerialQueryRunner.readCurrent(
+            query = { "" },
+            passive = { "1581FAKE000000000002" },
+            acceptsPassive = { true }
+        ))
+    }
+
     private fun reply(status: Int, length: Int, body: ByteArray): ByteArray =
         byteArrayOf(status.toByte(), length.toByte(), (length shr 8).toByte()) + body
 

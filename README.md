@@ -210,27 +210,17 @@ full FCC apply.
 4. For 4G diagnostics, tap **Probe 4G Endpoint** first. This is read-only and only checks whether `/duss/mb/0x205` is reachable. **Send 4G Activation Frames** remains experimental: it waits for the matching `51:1A` response, but even an accepted request only means that the controller started its link-switch flow, not that 4G became active.
    > **Note:** The integrated eSIM path on DJI Avata 360 is not yet proven compatible with the captured external-module profile. Please attach the LAN logs to an [issue](https://github.com/danusha2345/SkylabFCCfree/issues) when testing.
 5. The aircraft-control card is split evenly: GPS on the left and LED on the right. Each side has its own manual refresh and explicit ON/OFF buttons, available without starting Auto FCC first. GPS ON/OFF sends four bounded command cycles of five idempotent writes 100 ms apart, with 250 ms between cycles, releases port `40007`, and after 250 ms automatically runs a three-attempt status Refresh. Every status attempt opens a new port lease instead of reusing a failed one. The 20-write bound includes the equivalent of a second manual press because live `rc331` logs showed that the first ten writes can leave the verified state unchanged. LED ON/OFF makes at most two complete reference-pattern command cycles. GPS/LED stay on the wrapped `40007` path because live RC Pro 2 tests found no matching readback on `40009` or `8901`. The last validated replies persist across app reopen with a `Last verified` timestamp, and a failed manual refresh does not erase them. A GPS write invalidates the older cached value until the fresh Refresh completes, so the UI never presents the pre-command OFF/ON as current. Neither side polls port `40007` in the background.
-6. The **Info** tab shows the controller code, aircraft model name/code and
-   factory S/N. DJI Fly and Pilot 2 screen text remains the preferred model-name
-   source. While DJI Fly is visible, one bounded passive `40007` window runs
-   every ten seconds for at most one minute. It opens when no aircraft S/N is
-   stored yet (then no more often than every five minutes), when a screen name
-   suggests the aircraft changed (at most one window a minute), and thirty
-   seconds after a Home Point — the FPV screen never prints a model name, so
-   without that last trigger a swapped aircraft would stay unnoticed, and the
-   Home Point is what proves an aircraft is really on the link. Identity always
-   yields to the FCC write the same Home Point starts. The window reads
-   S/N and CRC-valid `00:82` / `03:34` model frames from the same received
-   bytes without sending anything or opening another socket. The bus spells one
-   S/N two ways — `51:14` carries the full factory number, `03:44` only its
-   last sixteen characters — and both are recognised as the same aircraft, with
-   the full form kept.
-   A changed product code replaces the previous aircraft identity even if DJI
-   Fly never prints a model name on the FPV screen. A screen name still wins
-   when it belongs to the same code, while the local `AircraftModelCatalog`
-   names a code seen without a commercial name. Unknown safe alphanumeric
-   aircraft codes are displayed as-is; controller codes beginning with `RC`,
-   `RM`, or `GL` are rejected.
+6. Вкладка **Info** показывает код пульта, название/код модели дрона и
+   заводской S/N. Основным источником модели остаётся экран DJI Fly или Pilot 2.
+   Новое соединение DJI Fly разрешает один ограниченный запрос `00:51` на
+   `40007`: не более двух попыток по 600 мс. Занятый порт откладывает запрос,
+   не расходуя попытку. После фактического чтения таймер и Home Point не
+   назначают повторов; новое чтение разрешает устойчивый разрыв/восстановление
+   связи или подтверждённая смена модели. Пассивный ручной fallback читает
+   только payload полных CRC-valid кадров: заголовок и CRC не дописываются к
+   S/N. Полный номер и его шестнадцатисимвольный хвост относятся к одному борту;
+   сохраняется полная форма. Ручная смена identity сбрасывает прежнюю модель и
+   GPS/LED-адреса. Перед каждой явной отправкой 4G текущий S/N читается заново.
 7. The **Log** tab can start the LAN diagnostic API; since 1.5.51 it stays **off until you switch it on**. It uses unencrypted HTTP and a fixed shared password. A UDP beacon broadcasts only the controller IP and port across the current Wi-Fi subnet; it does not include the password, logs, or command payloads. Disable the bridge on untrusted Wi-Fi. See [LAN Control API](docs/LAN_CONTROL_API.md).
 
 SkylabFCCfree also keeps a low-priority foreground notification visible while

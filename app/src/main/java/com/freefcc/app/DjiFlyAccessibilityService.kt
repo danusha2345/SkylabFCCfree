@@ -264,20 +264,26 @@ class DjiFlyAccessibilityService : AccessibilityService() {
     }
 
     /** Reads identity once when DJI Fly reports a new, stable aircraft link. */
-    private fun captureAircraftIdentityOnLink(): Boolean {
+    private fun captureAircraftIdentityOnLink(probeToken: Long): Boolean {
         val prefs = getSharedPreferences("freefcc", Context.MODE_PRIVATE)
         val stored = prefs.getString(AircraftSerialGuard.KEY_SERIAL, "").orEmpty()
-        if (!serialCaptureBusy.compareAndSet(false, true)) return false
+        if (!serialCaptureBusy.compareAndSet(false, true)) {
+            linkSessionProbeGate.releaseUnstartedProbe(probeToken)
+            return false
+        }
 
         thread(name = "FreeFCC-aircraft-serial", isDaemon = true) {
             var port40007Lease: Port40007Lock.Lease? = null
             var sessionLease: DumlPortSessionLock.Lease? = null
+            var probeStarted = false
             try {
                 if (HardwareLock.busy.value) return@thread
                 port40007Lease = Port40007Lock.acquireForExternalBlocking(timeoutMs = 500)
                     ?: return@thread
                 sessionLease = DumlPortSessionLock.tryBegin(DumlTransport.PORT_LED)
                     ?: return@thread
+                if (!linkSessionProbeGate.isCurrentProbe(probeToken)) return@thread
+                probeStarted = true
                 val transport = DumlTransport()
                 // Ask for the serial rather than wait for one to be broadcast.
                 // Listening holds 40007 for the whole window and DJI Fly loses
@@ -342,6 +348,7 @@ class DjiFlyAccessibilityService : AccessibilityService() {
                 sessionLease?.close()
                 port40007Lease?.close()
                 serialCaptureBusy.set(false)
+                if (!probeStarted) linkSessionProbeGate.releaseUnstartedProbe(probeToken)
             }
         }
         return true
@@ -390,11 +397,11 @@ class DjiFlyAccessibilityService : AccessibilityService() {
         // Model first: a confirmed swap clears the previous S/N, then an S/N
         // visible on this same screen can immediately populate the new one.
         val serialReadFromUi = UsageStatistics.captureAircraftSerialFromUi(this, labels)
-        if (identityProbeDue && !serialReadFromUi) {
+        if (identityProbeDue != null && !serialReadFromUi) {
             FccViewModel.logServiceEvent(
                 "Aircraft link connected: starting one identity probe on port 40007"
             )
-            captureAircraftIdentityOnLink()
+            captureAircraftIdentityOnLink(identityProbeDue)
         }
     }
 

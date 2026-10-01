@@ -203,9 +203,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         )
 
         private val FULL_SERIAL_PATTERN = Regex("^1581[0-9A-Z]{12,18}$")
-        // The trailing character may be a digit: DJI Fly's own resources carry
-        // WM1615, WM1617 and WM2605 next to WM161, WM162 and WM260. Reading the
-        // last digit as part of a serial would store a model code as the S/N.
+        // Используется также при миграции сохранённого model code из старого S/N.
         private val MODEL_CODE_PATTERN = Regex("^W[AM][0-9]{3}[0-9A-Z]?$")
 
         /**
@@ -261,8 +259,6 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         }
     }
     private var initialized = false
-    @Volatile private var aircraftIdentityVerified = false
-    @Volatile private var verifiedAircraftIdentity = ""
 
     init {
         prefs.registerOnSharedPreferenceChangeListener(preferenceListener)
@@ -612,12 +608,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                         ""
                     }
                     if (serial.isNotEmpty()) {
-                        aircraftIdentityVerified = true
-                        verifiedAircraftIdentity = serial
                         storeAircraftIdentity(serial)
-                    } else {
-                        aircraftIdentityVerified = false
-                        verifiedAircraftIdentity = ""
                     }
                     ledOperationBusy.set(true)
                     update { copy(isLedBusy = true, ledStatus = "Reading LED state after Connect...") }
@@ -990,7 +981,7 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
         runOnIO {
             try {
-                val identity = parseFourGIdentity(getOrProbeSerial())
+                val identity = parseFourGIdentity(probeCurrentAircraftSerial())
                 if (identity == null) {
                     update {
                         copy(
@@ -1615,13 +1606,9 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     transport.probeSerial(SERIAL_PROBE_WINDOW_MS, effectivePort)
                 }
                 if (serial.isNotEmpty()) {
-                    aircraftIdentityVerified = true
-                    verifiedAircraftIdentity = serial
                     storeAircraftIdentity(serial)
                     log("Aircraft identity: $serial (cached)")
                 } else {
-                    aircraftIdentityVerified = false
-                    verifiedAircraftIdentity = ""
                     log("No serial detected — is the aircraft powered on?")
                 }
             } finally {
@@ -1671,22 +1658,9 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
                     )
 
                     model != null -> {
-                        // A name printed on screen outranks the one the bus
-                        // reports: it is what DJI Fly itself shows the pilot.
-                        val name = screenModel?.modelName.orEmpty().ifEmpty { model.modelName }
-                        prefs.edit().apply {
-                            if (model.modelCode.isNotEmpty()) {
-                                putString(PREF_AIRCRAFT_MODEL_CODE, model.modelCode)
-                            }
-                            if (name.isNotEmpty()) {
-                                putString(PREF_AIRCRAFT_MODEL_NAME, name)
-                            }
-                            putString(PREF_AIRCRAFT_MODEL_SOURCE, AIRCRAFT_MODEL_SOURCE_DUML)
-                            putLong(PREF_AIRCRAFT_MODEL_AT, System.currentTimeMillis())
-                        }.apply()
                         log(
                             "Aircraft model: " +
-                                "${name.ifEmpty { "unknown" }} " +
+                                "${model.modelName.ifEmpty { "unknown" }} " +
                                 "(${model.modelCode.ifEmpty { "unknown" }})"
                         )
                     }
@@ -1696,25 +1670,25 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
 
                 var portLease: Port40007Lock.Lease? = null
                 var sessionLease: DumlPortSessionLock.Lease? = null
+                var serial = ""
                 try {
                     portLease = Port40007Lock.acquireForLed()
                     if (portLease != null) {
                         sessionLease = DumlPortSessionLock.tryBegin(DumlTransport.PORT_LED)
-                        val serial = if (sessionLease != null) {
+                        serial = if (sessionLease != null) {
                             transport.probeSerial(SERIAL_PROBE_WINDOW_MS, DumlTransport.PORT_LED)
                         } else {
                             ""
-                        }
-                        if (serial.isNotEmpty()) {
-                            aircraftIdentityVerified = true
-                            verifiedAircraftIdentity = serial
-                            storeAircraftIdentity(serial)
-                            log("Aircraft identity refreshed and cached")
                         }
                     }
                 } finally {
                     sessionLease?.close()
                     portLease?.let(Port40007Lock::releaseFromLed)
+                }
+
+                if (serial.isNotEmpty() || model != null) {
+                    storeAircraftIdentity(serial, model)
+                    log("Aircraft identity refreshed and cached")
                 }
 
                 if (
@@ -2502,40 +2476,26 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
         return false
     }
 
-    /** Stores model code and factory serial independently for the Info page. */
-    private fun storeAircraftIdentity(raw: String) {
-        val normalized = raw.trim().uppercase(Locale.US)
-        val modelCode = MODEL_CODE_PATTERN.find(normalized)?.value
-        if (modelCode != null) {
-            update { copy(aircraftModelCode = modelCode) }
-            prefs.edit().putString(PREF_AIRCRAFT_MODEL_CODE, modelCode).apply()
-        } else {
-            val stored = prefs.getString("aircraft_serial", "").orEmpty()
-            // `51:14` and `03:44` spell one aircraft's S/N differently; the
-            // shorter reading must not overwrite the full factory number.
-            val serial = if (AircraftSerialForms.sameAircraft(normalized, stored)) {
-                AircraftSerialForms.preferred(stored, normalized)
-            } else {
-                normalized
-            }
-            update { copy(aircraftSerial = serial) }
-            val changed = stored != serial
-            prefs.edit().putString("aircraft_serial", serial).apply()
-            if (changed) UsageStatistics.scheduleUpload(app, force = true)
+    /** Ручное чтение сбрасывает данные и адреса параметров прежнего борта. */
+    private fun storeAircraftIdentity(raw: String, model: AircraftModelIdentity? = null) {
+        val observation = AircraftIdentityPreferences.updateFromManualRead(
+            prefs, raw, System.currentTimeMillis(), model
+        )
+        update {
+            copy(
+                aircraftSerial = observation.currentSerial,
+                aircraftModelCode = observation.currentModel.modelCode,
+                aircraftModelName = observation.currentModel.modelName
+            )
         }
+        if (observation.changed) UsageStatistics.scheduleUpload(app, force = true)
     }
 
     /**
-     * Returns an identity freshly verified in this process, probing when the
-     * current value came only from persistent cache. A cached identity may
-     * belong to a previously linked aircraft and must not be used blindly in
-     * serial-specific 4G frames.
+     * Перед каждым явным запросом 4G читает текущий S/N. Ранее проверенный
+     * номер может принадлежать борту, который уже отключили.
      */
-    private suspend fun getOrProbeSerial(): String {
-        if (aircraftIdentityVerified && verifiedAircraftIdentity.isNotEmpty()) {
-            return verifiedAircraftIdentity
-        }
-
+    private suspend fun probeCurrentAircraftSerial(): String {
         log("Probing current aircraft identity for 4G...")
         val effectivePort = DumlTransport.PORT_LED
         val portLease = Port40007Lock.acquireForLed()
@@ -2550,19 +2510,20 @@ class FccViewModel(private val app: Application) : AndroidViewModel(app) {
             return ""
         }
         val serial = try {
-            transport.probeSerial(SERIAL_PROBE_WINDOW_MS, effectivePort)
+            AircraftSerialQueryRunner.readCurrent(
+                query = { AircraftSerialQueryRunner.read(transport) },
+                passive = { transport.probeSerial(SERIAL_PROBE_WINDOW_MS, effectivePort) },
+                acceptsPassive = {
+                    AircraftSerialGuard.accepts(prefs, it, System.currentTimeMillis())
+                }
+            )
         } finally {
             sessionLease.close()
             Port40007Lock.releaseFromLed(portLease)
         }
         if (serial.isNotEmpty()) {
-            aircraftIdentityVerified = true
-            verifiedAircraftIdentity = serial
             storeAircraftIdentity(serial)
             log("Aircraft identity: $serial (verified and cached)")
-        } else {
-            aircraftIdentityVerified = false
-            verifiedAircraftIdentity = ""
         }
         return serial
     }
